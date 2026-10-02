@@ -22,3 +22,7 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+*.sqlite*
+database/*.sqlite*
+*firebase*.json
+storage/app/*firebase*.json
