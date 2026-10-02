@@ -83,7 +83,7 @@ class TikTokAdapter implements PlatformAdapterInterface
             'caption_length' => mb_strlen($caption),
         ]);
 
-        if (str_starts_with($token, 'mock_') || app()->environment('testing', 'local')) {
+        if (str_starts_with($token, 'mock_') || app()->environment('testing')) {
             $mockPublishId = 'tt_pub_' . substr(md5($context->job->id), 0, 16);
             return new PublishResult(
                 remoteId: $mockPublishId,
@@ -123,7 +123,7 @@ class TikTokAdapter implements PlatformAdapterInterface
 
     public function getStatus(string $remoteId, PublishContext $context): RemoteStatusResult
     {
-        if (str_starts_with($context->decryptedAccessToken, 'mock_') || app()->environment('testing', 'local')) {
+        if (str_starts_with($context->decryptedAccessToken, 'mock_') || app()->environment('testing')) {
             return new RemoteStatusResult(
                 status: 'SUCCESS',
                 remoteUrl: "https://www.tiktok.com/@creator/video/73928172910"

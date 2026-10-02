@@ -75,6 +75,9 @@ class PublishDestinationJob implements ShouldQueue
 
             $adapter = $platformManager->get($job->platform);
 
+            // Refresh token if expired
+            $accessToken = $account ? app(\App\Services\TokenRefreshService::class)->refreshIfExpired($account) : '';
+
             // Context
             $context = new PublishContext(
                 job: $job,
@@ -82,7 +85,7 @@ class PublishDestinationJob implements ShouldQueue
                 media: $media,
                 globalMetadata: $content->global_metadata ?? [],
                 platformOverrides: $content->platform_overrides ?? [],
-                decryptedAccessToken: $account->encrypted_access_token ?? 'mock_token'
+                decryptedAccessToken: $accessToken ?: ($account->encrypted_access_token ?? '')
             );
 
             // Preflight validate

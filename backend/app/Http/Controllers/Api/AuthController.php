@@ -94,9 +94,28 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        // For development / MVP header or session
-        $user = User::first();
-        $workspace = $user?->workspaces()->first() ?? $user?->ownedWorkspaces()->first();
+        $user = null;
+        $userId = $request->header('X-User-Id');
+        if ($userId) {
+            $user = User::find($userId);
+        }
+
+        if (!$user && $request->bearerToken()) {
+            $user = User::where('remember_token', $request->bearerToken())->first();
+        }
+
+        if (!$user && app()->environment('local', 'testing')) {
+            $user = User::first();
+        }
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated.'
+            ], 401);
+        }
+
+        $workspace = $user->workspaces()->first() ?? $user->ownedWorkspaces()->first();
 
         return response()->json([
             'success' => true,

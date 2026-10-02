@@ -84,7 +84,7 @@ class InstagramAdapter implements PlatformAdapterInterface
             'ig_user_id' => $igUserId,
         ]);
 
-        if (str_starts_with($token, 'mock_') || app()->environment('testing', 'local')) {
+        if (str_starts_with($token, 'mock_') || app()->environment('testing')) {
             $mockMediaId = '179' . substr(crc32($context->job->id), 0, 14);
             return new PublishResult(
                 remoteId: $mockMediaId,
@@ -135,7 +135,7 @@ class InstagramAdapter implements PlatformAdapterInterface
 
     public function getStatus(string $remoteId, PublishContext $context): RemoteStatusResult
     {
-        if (str_starts_with($context->decryptedAccessToken, 'mock_') || app()->environment('testing', 'local')) {
+        if (str_starts_with($context->decryptedAccessToken, 'mock_') || app()->environment('testing')) {
             return new RemoteStatusResult(
                 status: 'SUCCESS',
                 remoteUrl: "https://www.instagram.com/reel/C89aBcDeFgH/"

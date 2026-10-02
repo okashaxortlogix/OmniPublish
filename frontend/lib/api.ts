@@ -53,6 +53,20 @@ export const api = {
     });
   },
 
+  completeOAuth: async (platform: string, payload: { idToken?: string; accessToken: string; refreshToken?: string }) => {
+    return request<SocialAccount>(`/oauth/complete/${platform.toLowerCase()}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        workspaceId: 'omnipublish-studio',
+        ...payload,
+      }),
+    });
+  },
+
+  getTikTokAuthUrl: async () => {
+    return request<{ redirectUrl: string }>('/oauth/tiktok/authorize?workspaceId=omnipublish-studio');
+  },
+
   disconnectAccount: async (accountId: string) => {
     return request<{ message: string }>(`/social-accounts/${accountId}/disconnect`, {
       method: 'POST',

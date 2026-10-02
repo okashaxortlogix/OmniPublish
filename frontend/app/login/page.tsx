@@ -14,8 +14,8 @@ import { api } from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('alex@omnipublish.io');
-  const [password, setPassword] = useState('Password123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,23 +25,24 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
 
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8001/api/v1';
+
     try {
-      // Authenticate with Laravel API
-      const res = await fetch('http://127.0.0.1:8000/api/v1/auth/login', {
+      const res = await fetch(`${apiBase}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
 
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || 'Invalid credentials');
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || 'Invalid email or password');
       }
 
       router.push('/dashboard');
-    } catch (err) {
-      // In local dev demo mode, redirect smoothly to dashboard
-      router.push('/dashboard');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Login failed. Please check your credentials.';
+      setError(message);
     } finally {
       setLoading(false);
     }

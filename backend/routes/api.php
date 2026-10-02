@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\PublishingController;
 use App\Http\Controllers\Api\CalendarController;
 use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\HealthController;
+use App\Http\Controllers\Api\OAuthController;
 
 // 1. Health Checks
 Route::get('/health/live', [HealthController::class, 'live']);
@@ -34,6 +35,14 @@ Route::prefix('social-accounts')->group(function () {
     Route::get('/', [SocialAccountController::class, 'index']);
     Route::post('/connect/{platform}', [SocialAccountController::class, 'connect']);
     Route::post('/{id}/disconnect', [SocialAccountController::class, 'disconnect']);
+});
+
+// 4.1 Real OAuth Handshakes
+Route::prefix('oauth')->group(function () {
+    Route::post('/complete/youtube', [OAuthController::class, 'completeYouTube']);
+    Route::post('/complete/instagram', [OAuthController::class, 'completeInstagram']);
+    Route::get('/tiktok/authorize', [OAuthController::class, 'tiktokAuthorize']);
+    Route::get('/tiktok/callback', [OAuthController::class, 'tiktokCallback']);
 });
 
 // 5. Media Library

@@ -87,8 +87,8 @@ class YouTubeAdapter implements PlatformAdapterInterface
             'privacy' => $overrides['privacyStatus'] ?? 'public',
         ]);
 
-        // If mock or sandbox token detected in dev/testing
-        if (str_starts_with($token, 'mock_') || app()->environment('testing', 'local')) {
+        // If mock or sandbox token detected in automated testing
+        if (str_starts_with($token, 'mock_') || app()->environment('testing')) {
             $mockVideoId = 'yt_' . substr(md5($context->job->id), 0, 11);
             return new PublishResult(
                 remoteId: $mockVideoId,
