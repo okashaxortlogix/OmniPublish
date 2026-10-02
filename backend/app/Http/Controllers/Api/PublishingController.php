@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\PublishBatch;
 use App\Models\PublishJob;
+use App\Models\Workspace;
 use App\Services\PublishingService;
 use App\Platforms\Services\PlatformManager;
 use Illuminate\Http\Request;
@@ -18,7 +19,8 @@ class PublishingController extends Controller
 
     public function index(Request $request)
     {
-        $workspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $rawWorkspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
 
         $query = PublishBatch::with(['publishJobs.socialAccount', 'contentItem.mediaAsset'])->latest();
         if ($workspaceId) {
@@ -49,7 +51,7 @@ class PublishingController extends Controller
         ]);
 
         $batch = $this->publishingService->createBatch(
-            workspaceId: $validated['workspaceId'],
+            workspaceId: Workspace::resolveId($validated['workspaceId']) ?? $validated['workspaceId'],
             userId: null,
             mediaAssetId: $validated['mediaAssetId'] ?? null,
             globalMetadata: $validated['globalMetadata'],

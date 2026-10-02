@@ -6,13 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Models\PublishJob;
 use App\Models\SocialAccount;
 use App\Models\PublishBatch;
+use App\Models\Workspace;
 use Illuminate\Http\Request;
 
 class AnalyticsController extends Controller
 {
     public function summary(Request $request)
     {
-        $workspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $rawWorkspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
 
         $jobsQuery = PublishJob::query();
         $accountsQuery = SocialAccount::query();

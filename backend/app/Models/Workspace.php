@@ -18,6 +18,13 @@ class Workspace extends Model
         'owner_id',
     ];
 
+    public static function resolveId(?string $idOrSlug): ?string
+    {
+        if (!$idOrSlug) return null;
+        $ws = static::where('id', $idOrSlug)->orWhere('slug', $idOrSlug)->first();
+        return $ws ? $ws->id : $idOrSlug;
+    }
+
     public function owner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'owner_id');

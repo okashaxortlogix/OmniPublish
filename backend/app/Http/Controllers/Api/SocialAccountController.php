@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\SocialAccount;
+use App\Models\Workspace;
 use App\Models\AuditEvent;
 use App\Platforms\Services\PlatformManager;
 use Illuminate\Http\Request;
@@ -12,7 +13,8 @@ class SocialAccountController extends Controller
 {
     public function index(Request $request, PlatformManager $manager)
     {
-        $workspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $rawWorkspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
 
         $query = SocialAccount::query();
         if ($workspaceId) {
@@ -45,7 +47,7 @@ class SocialAccountController extends Controller
         // Upsert or create social account
         $account = SocialAccount::updateOrCreate(
             [
-                'workspace_id' => $validated['workspaceId'],
+                'workspace_id' => Workspace::resolveId($validated['workspaceId']),
                 'platform' => $platformKey,
             ],
             [

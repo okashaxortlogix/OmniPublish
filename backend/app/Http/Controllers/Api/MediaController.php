@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\MediaAsset;
+use App\Models\Workspace;
 use App\Models\AuditEvent;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -12,7 +13,8 @@ class MediaController extends Controller
 {
     public function index(Request $request)
     {
-        $workspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $rawWorkspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
 
         $query = MediaAsset::latest();
         if ($workspaceId) {
@@ -33,7 +35,7 @@ class MediaController extends Controller
             'mockTitle' => 'nullable|string',
         ]);
 
-        $workspaceId = $request->input('workspaceId');
+        $workspaceId = Workspace::resolveId($request->input('workspaceId')) ?? $request->input('workspaceId');
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
