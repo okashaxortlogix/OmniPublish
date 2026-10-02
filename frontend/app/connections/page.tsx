@@ -43,7 +43,7 @@ interface PlatformCardInfo {
   badgeColor: string;
   scopes: string[];
   description: string;
-  oauthProvider: 'firebase-google' | 'firebase-meta' | 'tiktok-pkce' | 'custom';
+  oauthProvider: 'google-oauth' | 'firebase-meta' | 'tiktok-pkce' | 'custom';
 }
 
 const PLATFORMS: PlatformCardInfo[] = [
@@ -56,7 +56,7 @@ const PLATFORMS: PlatformCardInfo[] = [
     badgeColor: 'text-red-600 bg-red-50 border-red-200',
     scopes: ['youtube.upload', 'youtube.readonly', 'userinfo.profile'],
     description: 'Direct publishing to YouTube Shorts and Video Feed with live subscriber analytics.',
-    oauthProvider: 'firebase-google',
+    oauthProvider: 'google-oauth',
   },
   {
     key: 'INSTAGRAM',
@@ -159,7 +159,9 @@ export default function ConnectionsPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
   const [showFirebaseModal, setShowFirebaseModal] = useState(false);
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
   const [copiedEnv, setCopiedEnv] = useState(false);
+  const [copiedGoogleEnv, setCopiedGoogleEnv] = useState(false);
 
   useEffect(() => {
     loadAccounts();
@@ -170,9 +172,11 @@ export default function ConnectionsPage() {
       const connected = params.get('connected');
       const err = params.get('error');
 
-      if (connected === 'TIKTOK' && params.get('success') === 'true') {
+      if (connected === 'YOUTUBE' && params.get('success') === 'true') {
+        setSuccessBanner('YouTube channel linked successfully! Real channel name, avatar, and live subscribers loaded.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (connected === 'TIKTOK' && params.get('success') === 'true') {
         setSuccessBanner('TikTok Creator account linked successfully with live video permissions!');
-        // Clean URL without reload
         window.history.replaceState({}, document.title, window.location.pathname);
       } else if (err) {
         setErrorMessage(decodeURIComponent(err));
@@ -197,36 +201,22 @@ export default function ConnectionsPage() {
     setErrorMessage(null);
     setSuccessBanner(null);
 
-    // 1. YouTube Flow (Google OAuth via Firebase)
+    // 1. YouTube Flow (Direct Google OAuth 2.0 Chrome Redirect)
     if (platform === 'YOUTUBE') {
-      if (!isFirebaseConfigured()) {
-        setShowFirebaseModal(true);
-        return;
-      }
-
       try {
         setConnectingPlatform('YOUTUBE');
-        const auth = getFirebaseAuth();
-        const result = await signInWithPopup(auth, googleProvider);
-        const credential = GoogleAuthProvider.credentialFromResult(result);
-        const idToken = await result.user.getIdToken();
-        const accessToken = credential?.accessToken;
-
-        if (!accessToken) {
-          throw new Error('Google OAuth did not provide an access token.');
+        const res = await api.getYouTubeAuthUrl();
+        if (res.redirectUrl) {
+          window.location.href = res.redirectUrl;
+        } else {
+          throw new Error('No authorization URL returned from server.');
         }
-
-        await api.completeOAuth('youtube', {
-          idToken,
-          accessToken,
-        });
-
-        setSuccessBanner('YouTube channel successfully linked! Real channel data and statistics loaded.');
-        await loadAccounts();
       } catch (err: unknown) {
-        console.error('YouTube connection failed:', err);
-        const msg = err instanceof Error ? err.message : 'Google authentication was cancelled or failed.';
-        if (!msg.includes('popup-closed-by-user')) {
+        console.error('YouTube auth redirect failed:', err);
+        const msg = err instanceof Error ? err.message : 'Failed to initialize Google OAuth.';
+        if (msg.includes('GOOGLE_CLIENT_ID is not configured') || msg.includes('Google OAuth credentials')) {
+          setShowGoogleModal(true);
+        } else {
           setErrorMessage(msg);
         }
       } finally {
@@ -320,6 +310,15 @@ NEXT_PUBLIC_FIREBASE_APP_ID=1:1234567890:web:abcdef123456`;
     navigator.clipboard.writeText(snippet);
     setCopiedEnv(true);
     setTimeout(() => setCopiedEnv(false), 2500);
+  };
+
+  const copyGoogleEnvSnippet = () => {
+    const snippet = `GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:8001/api/v1/oauth/google/callback`;
+    navigator.clipboard.writeText(snippet);
+    setCopiedGoogleEnv(true);
+    setTimeout(() => setCopiedGoogleEnv(false), 2500);
   };
 
   return (
@@ -705,6 +704,94 @@ NEXT_PUBLIC_FIREBASE_APP_ID=1:1234567890:web:abcdef123456`}
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   onClick={() => setShowFirebaseModal(false)}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Google OAuth Config Modal */}
+        {showGoogleModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+            <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-red-600" />
+                    YouTube / Google Sign-In Setup
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Connect real YouTube channels using Google Cloud OAuth 2.0.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowGoogleModal(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="rounded-xl bg-red-50 border border-red-200/80 p-3.5 text-xs text-red-900 space-y-1.5">
+                <p className="font-bold flex items-center gap-1.5 text-red-800">
+                  <Info className="h-4 w-4" />
+                  Google OAuth credentials required in backend/.env
+                </p>
+                <p className="text-[11px] text-red-700 leading-relaxed">
+                  To open the official Chrome sign-in screen, add your Google Cloud OAuth Client ID and Secret to{' '}
+                  <code className="font-mono font-bold bg-red-100 px-1 py-0.5 rounded">backend/.env</code>.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-700">Add to backend/.env:</span>
+                  <button
+                    onClick={copyGoogleEnvSnippet}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    {copiedGoogleEnv ? (
+                      <>
+                        <Check className="h-3 w-3 text-emerald-600" />
+                        <span className="text-emerald-600">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3 w-3" />
+                        <span>Copy Template</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <pre className="p-3 bg-slate-900 text-slate-100 rounded-xl text-[11px] font-mono overflow-x-auto leading-relaxed border border-slate-800">
+{`GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:8001/api/v1/oauth/google/callback`}
+                </pre>
+              </div>
+
+              <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600 space-y-1.5">
+                <p className="font-semibold text-slate-800">Quick 3-step setup in Google Cloud:</p>
+                <p className="text-[11px] text-slate-500">
+                  1. Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-blue-600 underline font-semibold">Google Cloud Console → Credentials</a>.
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  2. Click <strong>Create Credentials</strong> → <strong>OAuth client ID</strong> → Select <strong>Web application</strong>.
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  3. In <strong>Authorized redirect URIs</strong>, add: <code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-[10px] text-slate-800">http://localhost:8001/api/v1/oauth/google/callback</code>
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  4. Enable <strong>YouTube Data API v3</strong> in <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noreferrer" className="text-blue-600 underline font-semibold">API Library</a>.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setShowGoogleModal(false)}
                   className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   Close

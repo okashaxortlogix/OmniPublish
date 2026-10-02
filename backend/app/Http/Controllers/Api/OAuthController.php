@@ -15,6 +15,179 @@ use Illuminate\Support\Str;
 class OAuthController extends Controller
 {
     /**
+     * Start direct Google OAuth 2.0 authorization redirect flow.
+     */
+    public function youtubeAuthorize(Request $request)
+    {
+        $rawWorkspaceId = $request->query('workspaceId') ?? 'omnipublish-studio';
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
+
+        $clientId = config('services.google.client_id');
+        $redirectUri = config('services.google.redirect_uri') ?? url('/api/v1/oauth/google/callback');
+
+        if (!$clientId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'GOOGLE_CLIENT_ID is not configured in backend/.env. Please configure Google OAuth credentials.',
+                'needs_config' => true,
+            ], 422);
+        }
+
+        $state = Str::uuid()->toString();
+
+        Cache::put("google_oauth_{$state}", [
+            'workspace_id' => $workspaceId,
+        ], now()->addMinutes(10));
+
+        $params = [
+            'client_id'             => $clientId,
+            'redirect_uri'          => $redirectUri,
+            'response_type'         => 'code',
+            'scope'                 => implode(' ', [
+                'https://www.googleapis.com/auth/youtube.upload',
+                'https://www.googleapis.com/auth/youtube.readonly',
+                'https://www.googleapis.com/auth/userinfo.profile',
+                'https://www.googleapis.com/auth/userinfo.email',
+                'openid',
+            ]),
+            'access_type'           => 'offline',
+            'prompt'                => 'consent select_account',
+            'state'                 => $state,
+            'include_granted_scopes'=> 'true',
+        ];
+
+        $redirectUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'redirectUrl' => $redirectUrl,
+            ],
+        ]);
+    }
+
+    /**
+     * Handle Google OAuth redirect callback and sync YouTube channel.
+     */
+    public function googleCallback(Request $request)
+    {
+        $code = $request->query('code');
+        $state = $request->query('state');
+        $error = $request->query('error');
+
+        $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+
+        if ($error || !$code) {
+            $msg = urlencode($error ?: 'Google authentication was cancelled.');
+            return redirect("{$frontendUrl}/connections?error={$msg}");
+        }
+
+        $cachedData = Cache::pull("google_oauth_{$state}");
+        if (!$cachedData) {
+            return redirect("{$frontendUrl}/connections?error=" . urlencode('OAuth session expired. Please try connecting again.'));
+        }
+
+        $workspaceId = $cachedData['workspace_id'];
+        $clientId = config('services.google.client_id');
+        $clientSecret = config('services.google.client_secret');
+        $redirectUri = config('services.google.redirect_uri') ?? url('/api/v1/oauth/google/callback');
+
+        // Exchange authorization code for tokens via Google OAuth token endpoint
+        $tokenRes = Http::asForm()->post('https://oauth2.googleapis.com/token', [
+            'client_id'     => $clientId,
+            'client_secret' => $clientSecret,
+            'code'          => $code,
+            'grant_type'    => 'authorization_code',
+            'redirect_uri'  => $redirectUri,
+        ]);
+
+        if ($tokenRes->failed() || empty($tokenRes->json('access_token'))) {
+            $errMsg = $tokenRes->json('error_description') ?? $tokenRes->json('error') ?? 'Failed to exchange Google authorization code.';
+            return redirect("{$frontendUrl}/connections?error=" . urlencode($errMsg));
+        }
+
+        $accessToken = $tokenRes->json('access_token');
+        $refreshToken = $tokenRes->json('refresh_token');
+        $expiresIn = $tokenRes->json('expires_in') ?? 3600;
+
+        // Fetch YouTube channel details using YouTube Data API v3
+        $channelRes = Http::withToken($accessToken)->get('https://www.googleapis.com/youtube/v3/channels', [
+            'part' => 'snippet,statistics',
+            'mine' => 'true',
+        ]);
+
+        $channelId = null;
+        $channelTitle = null;
+        $channelHandle = null;
+        $avatarUrl = null;
+        $stats = [
+            'subscriberCount' => 0,
+            'videoCount' => 0,
+            'viewCount' => 0,
+        ];
+
+        if ($channelRes->successful() && !empty($channelRes->json('items'))) {
+            $item = $channelRes->json('items.0');
+            $channelId = $item['id'];
+            $snippet = $item['snippet'] ?? [];
+            $statistics = $item['statistics'] ?? [];
+
+            $channelTitle = $snippet['title'] ?? 'YouTube Channel';
+            $channelHandle = !empty($snippet['customUrl'])
+                ? ('@' . ltrim($snippet['customUrl'], '@'))
+                : ('@' . Str::slug($channelTitle));
+
+            $avatarUrl = $snippet['thumbnails']['high']['url']
+                ?? $snippet['thumbnails']['default']['url']
+                ?? null;
+
+            $stats['subscriberCount'] = (int) ($statistics['subscriberCount'] ?? 0);
+            $stats['videoCount'] = (int) ($statistics['videoCount'] ?? 0);
+            $stats['viewCount'] = (int) ($statistics['viewCount'] ?? 0);
+        } else {
+            // User does not have a YouTube channel created yet; get Google profile
+            $profileRes = Http::withToken($accessToken)->get('https://www.googleapis.com/oauth2/v3/userinfo');
+            $profile = $profileRes->json() ?? [];
+            $channelId = 'g_' . ($profile['sub'] ?? substr(md5($accessToken), 0, 12));
+            $channelTitle = $profile['name'] ?? 'Google Account';
+            $channelHandle = '@' . Str::slug($profile['name'] ?? 'googleuser');
+            $avatarUrl = $profile['picture'] ?? null;
+        }
+
+        // Upsert SocialAccount with real Google / YouTube credentials
+        $account = SocialAccount::updateOrCreate(
+            [
+                'workspace_id' => $workspaceId,
+                'platform'     => 'YOUTUBE',
+            ],
+            [
+                'platform_account_id'    => $channelId,
+                'account_name'           => $channelTitle,
+                'account_handle'         => $channelHandle,
+                'avatar_url'             => $avatarUrl,
+                'status'                 => 'ACTIVE',
+                'scopes'                 => ['youtube.upload', 'youtube.readonly', 'userinfo.profile'],
+                'encrypted_access_token' => $accessToken,
+                'encrypted_refresh_token'=> $refreshToken,
+                'token_expires_at'       => now()->addSeconds($expiresIn),
+                'metadata'               => array_merge($stats, [
+                    'connected_at' => now()->toIso8601String(),
+                ]),
+            ]
+        );
+
+        AuditEvent::create([
+            'workspace_id'  => $workspaceId,
+            'action'        => 'ACCOUNT_CONNECTED',
+            'resource_type' => 'SocialAccount',
+            'resource_id'   => $account->id,
+            'metadata'      => ['platform' => 'YOUTUBE', 'account_name' => $channelTitle],
+        ]);
+
+        return redirect("{$frontendUrl}/connections?connected=YOUTUBE&success=true");
+    }
+
+    /**
      * Complete YouTube / Google OAuth handshake using Firebase ID token and Google Access Token.
      */
     public function completeYouTube(Request $request)

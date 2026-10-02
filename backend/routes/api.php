@@ -39,6 +39,8 @@ Route::prefix('social-accounts')->group(function () {
 
 // 4.1 Real OAuth Handshakes
 Route::prefix('oauth')->group(function () {
+    Route::get('/youtube/authorize', [OAuthController::class, 'youtubeAuthorize']);
+    Route::get('/google/callback', [OAuthController::class, 'googleCallback']);
     Route::post('/complete/youtube', [OAuthController::class, 'completeYouTube']);
     Route::post('/complete/instagram', [OAuthController::class, 'completeInstagram']);
     Route::get('/tiktok/authorize', [OAuthController::class, 'tiktokAuthorize']);

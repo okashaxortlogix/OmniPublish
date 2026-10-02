@@ -63,6 +63,10 @@ export const api = {
     });
   },
 
+  getYouTubeAuthUrl: async () => {
+    return request<{ redirectUrl: string }>('/oauth/youtube/authorize?workspaceId=omnipublish-studio');
+  },
+
   getTikTokAuthUrl: async () => {
     return request<{ redirectUrl: string }>('/oauth/tiktok/authorize?workspaceId=omnipublish-studio');
   },

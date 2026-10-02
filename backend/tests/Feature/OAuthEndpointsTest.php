@@ -33,6 +33,26 @@ class OAuthEndpointsTest extends TestCase
         ]);
     }
 
+    public function test_youtube_authorize_generates_google_oauth_url(): void
+    {
+        Config::set('services.google.client_id', 'google_client_id_test.apps.googleusercontent.com');
+        Config::set('services.google.redirect_uri', 'http://localhost:8001/api/v1/oauth/google/callback');
+
+        $response = $this->getJson('/api/v1/oauth/youtube/authorize?workspaceId=omnipublish-studio');
+
+        $response->assertStatus(200);
+        $response->assertJsonStructure([
+            'success',
+            'data' => ['redirectUrl'],
+        ]);
+
+        $redirectUrl = $response->json('data.redirectUrl');
+        $this->assertStringContainsString('https://accounts.google.com/o/oauth2/v2/auth', $redirectUrl);
+        $this->assertStringContainsString('client_id=google_client_id_test', $redirectUrl);
+        $this->assertStringContainsString('youtube.upload', $redirectUrl);
+        $this->assertStringContainsString('access_type=offline', $redirectUrl);
+    }
+
     public function test_youtube_oauth_requires_access_token(): void
     {
         $response = $this->postJson('/api/v1/oauth/complete/youtube', [
