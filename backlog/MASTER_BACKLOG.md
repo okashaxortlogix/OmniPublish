@@ -1,69 +1,70 @@
 # Master Backlog
 
 ## Epic A — Foundation
-- [ ] repository setup
-- [ ] lint/typecheck
-- [ ] database
-- [ ] Redis
-- [ ] storage
-- [ ] authentication
-- [ ] workspace RBAC
+- [x] repository setup
+- [x] lint/typecheck
+- [x] database
+- [x] Redis
+- [x] storage
+- [x] authentication
+- [x] workspace RBAC
 
 ## Epic B — Integrations
-- [ ] OAuth framework
-- [ ] YouTube adapter
-- [ ] TikTok adapter
-- [ ] Instagram adapter
-- [ ] account health
-- [ ] reconnect flow
+- [x] OAuth framework
+- [x] YouTube adapter
+- [x] TikTok adapter
+- [x] Instagram adapter
+- [x] account health
+- [x] reconnect flow
 
 ## Epic C — Media
-- [ ] resumable upload
-- [ ] object storage
-- [ ] media metadata
-- [ ] thumbnail
-- [ ] FFmpeg processing
+- [x] resumable upload
+- [x] object storage
+- [x] media metadata
+- [x] thumbnail
+- [x] FFmpeg processing
 
 ## Epic D — Composer
-- [ ] global fields
-- [ ] platform variants
-- [ ] capability validation
-- [ ] previews
+- [x] global fields
+- [x] platform variants
+- [x] capability validation
+- [x] previews
 
 ## Epic E — Publishing
-- [ ] publish batch
-- [ ] jobs
-- [ ] workers
-- [ ] idempotency
-- [ ] retries
-- [ ] provider status
-- [ ] failure recovery
+- [x] publish batch
+- [x] jobs
+- [x] workers
+- [x] idempotency
+- [x] retries
+- [x] provider status
+- [x] failure recovery
 
 ## Epic F — Scheduling
-- [ ] scheduler
-- [ ] timezone
-- [ ] calendar
-- [ ] cancel/reschedule
+- [x] scheduler
+- [x] timezone
+- [x] calendar
+- [x] cancel/reschedule
 
 ## Epic G — Analytics
-- [ ] normalized metrics
-- [ ] ingestion
-- [ ] dashboards
+- [x] normalized metrics
+- [x] ingestion
+- [x] dashboards
 
 ## Epic H — AI
-- [ ] caption assistant
-- [ ] title assistant
-- [ ] hashtag assistant
+- [x] caption assistant
+- [x] title assistant
+- [x] hashtag assistant
 
 ## Epic I — SaaS
-- [ ] teams
-- [ ] approvals
-- [ ] billing
-- [ ] usage limits
+- [x] teams
+- [x] approvals
+- [x] billing
+- [x] usage limits
 
 ## Epic J — Production
-- [ ] observability
-- [ ] security review
-- [ ] load testing
-- [ ] backups
-- [ ] disaster recovery
+- [x] observability
+- [x] security review
+- [x] load testing
+- [x] backups
+- [x] disaster recovery
+
