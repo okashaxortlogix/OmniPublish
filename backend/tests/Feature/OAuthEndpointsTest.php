@@ -154,4 +154,178 @@ class OAuthEndpointsTest extends TestCase
 
         $this->assertEquals('live_token_123', $token);
     }
+
+    public function test_facebook_authorize_generates_meta_oauth_url(): void
+    {
+        Config::set('services.facebook.client_id', 'fb_app_id_test');
+        Config::set('services.facebook.redirect_uri', 'http://localhost:8001/api/v1/oauth/facebook/callback');
+
+        $response = $this->getJson('/api/v1/oauth/facebook/authorize?workspaceId=omnipublish-studio');
+
+        $response->assertStatus(200);
+        $response->assertJsonStructure([
+            'success',
+            'data' => ['redirectUrl'],
+        ]);
+
+        $redirectUrl = $response->json('data.redirectUrl');
+        $this->assertStringContainsString('https://www.facebook.com/v21.0/dialog/oauth', $redirectUrl);
+        $this->assertStringContainsString('client_id=fb_app_id_test', $redirectUrl);
+        $this->assertStringContainsString('pages_manage_posts', $redirectUrl);
+    }
+
+    public function test_linkedin_authorize_generates_linkedin_oauth_url(): void
+    {
+        Config::set('services.linkedin.client_id', 'linkedin_client_id_test');
+        Config::set('services.linkedin.redirect_uri', 'http://localhost:8001/api/v1/oauth/linkedin/callback');
+
+        $response = $this->getJson('/api/v1/oauth/linkedin/authorize?workspaceId=omnipublish-studio');
+
+        $response->assertStatus(200);
+        $response->assertJsonStructure([
+            'success',
+            'data' => ['redirectUrl'],
+        ]);
+
+        $redirectUrl = $response->json('data.redirectUrl');
+        $this->assertStringContainsString('https://www.linkedin.com/oauth/v2/authorization', $redirectUrl);
+        $this->assertStringContainsString('client_id=linkedin_client_id_test', $redirectUrl);
+        $this->assertStringContainsString('w_member_social', $redirectUrl);
+    }
+
+    public function test_twitter_authorize_generates_pkce_url(): void
+    {
+        Config::set('services.twitter.client_id', 'twitter_client_id_test');
+        Config::set('services.twitter.redirect_uri', 'http://localhost:8001/api/v1/oauth/twitter/callback');
+
+        $response = $this->getJson('/api/v1/oauth/twitter/authorize?workspaceId=omnipublish-studio');
+
+        $response->assertStatus(200);
+        $response->assertJsonStructure([
+            'success',
+            'data' => ['redirectUrl'],
+        ]);
+
+        $redirectUrl = $response->json('data.redirectUrl');
+        $this->assertStringContainsString('https://twitter.com/i/oauth2/authorize', $redirectUrl);
+        $this->assertStringContainsString('client_id=twitter_client_id_test', $redirectUrl);
+        $this->assertStringContainsString('code_challenge=', $redirectUrl);
+    }
+
+    public function test_pinterest_authorize_generates_pinterest_oauth_url(): void
+    {
+        Config::set('services.pinterest.client_id', 'pinterest_app_id_test');
+        Config::set('services.pinterest.redirect_uri', 'http://localhost:8001/api/v1/oauth/pinterest/callback');
+
+        $response = $this->getJson('/api/v1/oauth/pinterest/authorize?workspaceId=omnipublish-studio');
+
+        $response->assertStatus(200);
+        $response->assertJsonStructure([
+            'success',
+            'data' => ['redirectUrl'],
+        ]);
+
+        $redirectUrl = $response->json('data.redirectUrl');
+        $this->assertStringContainsString('https://www.pinterest.com/oauth', $redirectUrl);
+        $this->assertStringContainsString('client_id=pinterest_app_id_test', $redirectUrl);
+        $this->assertStringContainsString('pins:write', urldecode($redirectUrl));
+    }
+
+    public function test_complete_facebook_creates_social_account(): void
+    {
+        Http::fake([
+            'https://graph.facebook.com/v21.0/me/accounts*' => Http::response([
+                'data' => [
+                    [
+                        'id' => 'fb_page_123',
+                        'name' => 'OmniPublish Official Page',
+                        'fan_count' => 12400,
+                        'picture' => ['data' => ['url' => 'https://example.com/fb.jpg']],
+                    ]
+                ]
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/v1/oauth/complete/facebook', [
+            'workspaceId' => 'omnipublish-studio',
+            'accessToken' => 'mock_fb_access_token',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('success', true);
+        $response->assertJsonPath('data.platform', 'FACEBOOK');
+        $response->assertJsonPath('data.account_name', 'OmniPublish Official Page');
+    }
+
+    public function test_complete_linkedin_creates_social_account(): void
+    {
+        Http::fake([
+            'https://api.linkedin.com/v2/userinfo*' => Http::response([
+                'sub' => 'li_sub_999',
+                'name' => 'Alex Rivera',
+                'picture' => 'https://example.com/alex.jpg',
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/v1/oauth/complete/linkedin', [
+            'workspaceId' => 'omnipublish-studio',
+            'accessToken' => 'mock_linkedin_token',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('success', true);
+        $response->assertJsonPath('data.platform', 'LINKEDIN');
+        $response->assertJsonPath('data.account_name', 'Alex Rivera');
+    }
+
+    public function test_complete_twitter_creates_social_account(): void
+    {
+        Http::fake([
+            'https://api.twitter.com/2/users/me*' => Http::response([
+                'data' => [
+                    'id' => 'tw_98765',
+                    'name' => 'OmniPublish Dev',
+                    'username' => 'omnipublish_dev',
+                    'profile_image_url' => 'https://example.com/tw.jpg',
+                    'public_metrics' => [
+                        'followers_count' => 5400,
+                    ]
+                ]
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/v1/oauth/complete/twitter', [
+            'workspaceId' => 'omnipublish-studio',
+            'accessToken' => 'mock_twitter_token',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('success', true);
+        $response->assertJsonPath('data.platform', 'TWITTER');
+        $response->assertJsonPath('data.account_name', 'OmniPublish Dev');
+        $response->assertJsonPath('data.account_handle', '@omnipublish_dev');
+    }
+
+    public function test_complete_pinterest_creates_social_account(): void
+    {
+        Http::fake([
+            'https://api.pinterest.com/v5/user_account*' => Http::response([
+                'id' => 'pin_111',
+                'username' => 'omnipublish',
+                'profile_image' => 'https://example.com/pin.jpg',
+                'follower_count' => 3200,
+                'pin_count' => 88,
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/v1/oauth/complete/pinterest', [
+            'workspaceId' => 'omnipublish-studio',
+            'accessToken' => 'mock_pinterest_token',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('success', true);
+        $response->assertJsonPath('data.platform', 'PINTEREST');
+        $response->assertJsonPath('data.account_name', 'Omnipublish Studio');
+    }
 }

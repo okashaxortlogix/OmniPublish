@@ -42,15 +42,35 @@ return [
     ],
 
     'facebook' => [
-        'client_id' => env('FACEBOOK_CLIENT_ID'),
-        'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
-        'redirect_uri' => env('FACEBOOK_REDIRECT_URI', 'http://localhost:8001/api/v1/oauth/facebook/callback'),
+        'client_id'         => env('FACEBOOK_CLIENT_ID'),
+        'client_secret'     => env('FACEBOOK_CLIENT_SECRET'),
+        'redirect_uri'      => env('FACEBOOK_REDIRECT_URI', 'http://localhost:8001/api/v1/oauth/facebook/callback'),
+        'graph_host'        => env('META_GRAPH_HOST', 'https://graph.facebook.com'),
+        'graph_api_version' => env('META_GRAPH_API_VERSION', 'v21.0'),
     ],
 
     'tiktok' => [
         'client_key' => env('TIKTOK_CLIENT_KEY'),
         'client_secret' => env('TIKTOK_CLIENT_SECRET'),
         'redirect_uri' => env('TIKTOK_REDIRECT_URI', 'http://localhost:8001/api/v1/oauth/tiktok/callback'),
+    ],
+
+    'linkedin' => [
+        'client_id' => env('LINKEDIN_CLIENT_ID'),
+        'client_secret' => env('LINKEDIN_CLIENT_SECRET'),
+        'redirect_uri' => env('LINKEDIN_REDIRECT_URI', 'http://localhost:8001/api/v1/oauth/linkedin/callback'),
+    ],
+
+    'twitter' => [
+        'client_id' => env('TWITTER_CLIENT_ID'),
+        'client_secret' => env('TWITTER_CLIENT_SECRET'),
+        'redirect_uri' => env('TWITTER_REDIRECT_URI', 'http://localhost:8001/api/v1/oauth/twitter/callback'),
+    ],
+
+    'pinterest' => [
+        'client_id' => env('PINTEREST_APP_ID'),
+        'client_secret' => env('PINTEREST_APP_SECRET'),
+        'redirect_uri' => env('PINTEREST_REDIRECT_URI', 'http://localhost:8001/api/v1/oauth/pinterest/callback'),
     ],
 
 ];

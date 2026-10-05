@@ -27,6 +27,11 @@ class PublishBatchJob implements ShouldQueue
             return;
         }
 
+        if ($batch->scheduled_for && $batch->scheduled_for->isFuture()) {
+            Log::info("PublishBatch {$this->publishBatchId} is scheduled for future ({$batch->scheduled_for}). Waiting for scheduled time.");
+            return;
+        }
+
         $batch->update(['status' => 'RUNNING']);
 
         foreach ($batch->publishJobs as $job) {

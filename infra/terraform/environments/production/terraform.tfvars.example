@@ -1,0 +1,18 @@
+# =========================================================================
+# OmniPublish Production — Variable Values Example
+# Copy to terraform.tfvars and fill in secure values before deployment.
+# NEVER COMMIT terraform.tfvars TO GIT!
+# =========================================================================
+
+aws_region         = "us-east-1"
+environment        = "production"
+vpc_cidr           = "10.0.0.0/16"
+availability_zones = ["us-east-1a", "us-east-1b"]
+
+# Provide secure generated passwords (minimum 24 chars for production)
+db_password      = "REPLACE_WITH_SECURE_PROD_DB_PASSWORD"
+redis_auth_token = "REPLACE_WITH_SECURE_PROD_REDIS_AUTH_TOKEN"
+
+# Immutable Git commit SHA release tag to deploy
+image_tag       = "REPLACE_WITH_GIT_COMMIT_SHA"
+certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/your-cert-uuid"

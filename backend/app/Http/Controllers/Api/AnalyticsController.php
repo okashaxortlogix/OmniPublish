@@ -16,46 +16,78 @@ class AnalyticsController extends Controller
         $rawWorkspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
         $workspaceId = Workspace::resolveId($rawWorkspaceId);
 
-        $jobsQuery = PublishJob::query();
-        $accountsQuery = SocialAccount::query();
-        $batchesQuery = PublishBatch::query();
-
-        if ($workspaceId) {
-            $jobsQuery->where('workspace_id', $workspaceId);
-            $accountsQuery->where('workspace_id', $workspaceId);
-            $batchesQuery->where('workspace_id', $workspaceId);
+        if (!$workspaceId) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'totalPosts' => 0,
+                    'activeChannels' => 0,
+                    'successRate' => 100.0,
+                    'failedCount' => 0,
+                    'platformBreakdown' => [],
+                ]
+            ]);
         }
 
-        $totalJobs = $jobsQuery->count();
-        $publishedJobs = (clone $jobsQuery)->where('status', 'PUBLISHED')->count();
-        $failedJobs = (clone $jobsQuery)->whereIn('status', ['FAILED', 'AUTH_REQUIRED'])->count();
-        $activeAccounts = (clone $accountsQuery)->where('status', 'ACTIVE')->count();
+        $cacheKey = "analytics_summary_{$workspaceId}";
+        $data = \Illuminate\Support\Facades\Cache::remember($cacheKey, 15, function () use ($workspaceId) {
+            $stats = PublishJob::where('workspace_id', $workspaceId)
+                ->selectRaw('platform, status, count(*) as count')
+                ->groupBy('platform', 'status')
+                ->get();
 
-        $successRate = $totalJobs > 0 ? round(($publishedJobs / $totalJobs) * 100, 1) : 100.0;
+            $totalJobs = 0;
+            $publishedJobs = 0;
+            $failedJobs = 0;
+            $platforms = ['YOUTUBE', 'TIKTOK', 'INSTAGRAM', 'FACEBOOK', 'LINKEDIN', 'TWITTER'];
+            $breakdown = [];
+            foreach ($platforms as $p) {
+                $breakdown[$p] = ['total' => 0, 'published' => 0, 'successRate' => 100.0];
+            }
 
-        // Platform breakdown
-        $platforms = ['YOUTUBE', 'TIKTOK', 'INSTAGRAM'];
-        $breakdown = [];
-        foreach ($platforms as $p) {
-            $pQuery = (clone $jobsQuery)->where('platform', $p);
-            $pTotal = $pQuery->count();
-            $pSuccess = (clone $pQuery)->where('status', 'PUBLISHED')->count();
-            $breakdown[$p] = [
-                'total' => $pTotal,
-                'published' => $pSuccess,
-                'successRate' => $pTotal > 0 ? round(($pSuccess / $pTotal) * 100, 1) : 100.0,
-            ];
-        }
+            foreach ($stats as $row) {
+                $count = (int) $row->count;
+                $totalJobs += $count;
+                $p = $row->platform;
 
-        return response()->json([
-            'success' => true,
-            'data' => [
+                if (isset($breakdown[$p])) {
+                    $breakdown[$p]['total'] += $count;
+                }
+
+                if ($row->status === 'PUBLISHED') {
+                    $publishedJobs += $count;
+                    if (isset($breakdown[$p])) {
+                        $breakdown[$p]['published'] += $count;
+                    }
+                } elseif (in_array($row->status, ['FAILED', 'AUTH_REQUIRED'])) {
+                    $failedJobs += $count;
+                }
+            }
+
+            foreach ($platforms as $p) {
+                $t = $breakdown[$p]['total'];
+                $s = $breakdown[$p]['published'];
+                $breakdown[$p]['successRate'] = $t > 0 ? round(($s / $t) * 100, 1) : 100.0;
+            }
+
+            $activeAccounts = SocialAccount::where('workspace_id', $workspaceId)
+                ->where('status', 'ACTIVE')
+                ->count();
+
+            $successRate = $totalJobs > 0 ? round(($publishedJobs / $totalJobs) * 100, 1) : 100.0;
+
+            return [
                 'totalPosts' => $publishedJobs,
                 'activeChannels' => $activeAccounts,
                 'successRate' => $successRate,
                 'failedCount' => $failedJobs,
                 'platformBreakdown' => $breakdown,
-            ]
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $data,
         ]);
     }
 }

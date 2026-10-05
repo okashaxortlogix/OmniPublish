@@ -15,12 +15,18 @@ class CalendarController extends Controller
         $rawWorkspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
         $workspaceId = Workspace::resolveId($rawWorkspaceId);
 
-        $query = PublishBatch::with(['publishJobs.socialAccount', 'contentItem.mediaAsset']);
-        if ($workspaceId) {
-            $query->where('workspace_id', $workspaceId);
+        if (!$workspaceId) {
+            return response()->json([
+                'success' => true,
+                'data' => [],
+            ]);
         }
 
-        $batches = $query->latest()->limit(50)->get();
+        $batches = PublishBatch::where('workspace_id', $workspaceId)
+            ->with(['publishJobs.socialAccount', 'contentItem.mediaAsset'])
+            ->latest()
+            ->limit(50)
+            ->get();
 
         return response()->json([
             'success' => true,

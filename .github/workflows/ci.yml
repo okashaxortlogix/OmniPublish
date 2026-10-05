@@ -1,0 +1,178 @@
+name: OmniPublish Continuous Integration
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scanning:
+    name: Secret & Credential Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for Leaked Secrets (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: false
+
+      - name: Verify No Tracked .env Files
+        run: |
+          if git ls-files --error-unmatch backend/.env frontend/.env.local .env 2>/dev/null; then
+            echo "::error::Tracked .env file detected in repository!"
+            exit 1
+          fi
+          echo "Zero tracked .env files detected."
+
+  backend-ci:
+    name: Backend Tests & Migration Safety
+    runs-on: ubuntu-latest
+    needs: [ secret-scanning ]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: omnipublish_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP Runtime & Extensions
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo, pdo_pgsql, pgsql, bcmath, redis, zip, pcntl, mbstring, curl
+          coverage: none
+
+      - name: Install FFmpeg & FFprobe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Verify FFmpeg & FFprobe
+        run: |
+          ffmpeg -version
+          ffprobe -version
+
+      - name: Validate Composer Configuration
+        working-directory: backend
+        run: composer validate --strict
+
+      - name: Audit Backend Dependencies (Composer Audit)
+        working-directory: backend
+        run: composer audit
+
+      - name: Cache Composer Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ runner.os }}-${{ hashFiles('backend/composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Install Composer Dependencies
+        working-directory: backend
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Prepare Test Environment
+        working-directory: backend
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Validate Migrations on Clean PostgreSQL
+        working-directory: backend
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: omnipublish_test
+          DB_USERNAME: postgres
+          DB_PASSWORD: password
+        run: |
+          php artisan migrate:fresh --force
+          php artisan migrate:status
+          echo "Testing migration rollback safety..."
+          php artisan migrate:rollback --step=1
+          php artisan migrate --force
+
+      - name: Run Backend Test Suite
+        working-directory: backend
+        env:
+          APP_ENV: testing
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ":memory:"
+          QUEUE_CONNECTION: sync
+          CACHE_STORE: array
+        run: php artisan test --parallel
+
+  frontend-ci:
+    name: Frontend Typecheck, Lint & Production Build
+    runs-on: ubuntu-latest
+    needs: [ secret-scanning ]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Audit Frontend Dependencies
+        working-directory: frontend
+        run: |
+          echo "Running dependency vulnerability audit..."
+          npm audit --audit-level=critical || true
+
+      - name: Validate TypeScript Types
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Run ESLint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Compile Production Build
+        working-directory: frontend
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+          NEXT_PUBLIC_API_URL: https://api.omnipublish.com/api/v1
+        run: npm run build

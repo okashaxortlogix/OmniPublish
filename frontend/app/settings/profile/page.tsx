@@ -12,33 +12,76 @@ import {
   Check
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
+import { useAuth } from '@/context/AuthContext';
+import { api } from '@/lib/api';
 
 export default function ProfileSettingsPage() {
-  const [name, setName] = useState('John Doe');
-  const [email, setEmail] = useState('john@company.com');
-  const [role, setRole] = useState('Content Creator & Digital Marketer');
+  const { user, updateUser } = useAuth();
+  const [name, setName] = useState(user?.name || 'Alex Vance');
+  const [email, setEmail] = useState(user?.email || 'alex@omnipublish.io');
+  const [role, setRole] = useState('Workspace Owner');
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [pwSaved, setPwSaved] = useState(false);
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwError, setPwError] = useState<string | null>(null);
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  React.useEffect(() => {
+    if (user) {
+      setName(user.name);
+      setEmail(user.email);
+    }
+  }, [user]);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaving(true);
+    setProfileError(null);
+    try {
+      await updateUser(name, email);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update profile';
+      setProfileError(msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleSavePassword = (e: React.FormEvent) => {
+  const handleSavePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPwSaved(true);
-    setTimeout(() => {
-      setPwSaved(false);
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-    }, 2000);
+    setPwError(null);
+    if (newPassword !== confirmPassword) {
+      setPwError('New passwords do not match.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPwError('New password must be at least 8 characters long.');
+      return;
+    }
+
+    setPwSaving(true);
+    try {
+      await api.updatePassword(currentPassword, newPassword);
+      setPwSaved(true);
+      setTimeout(() => {
+        setPwSaved(false);
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      }, 2500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update password';
+      setPwError(msg);
+    } finally {
+      setPwSaving(false);
+    }
   };
 
   const tabs = [
@@ -87,7 +130,7 @@ export default function ProfileSettingsPage() {
           <div className="flex items-center gap-5">
             <div className="relative">
               <img
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200"
+                src={user?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200'}
                 alt="Avatar"
                 className="h-20 w-20 rounded-full object-cover border-2 border-slate-200"
               />
@@ -104,6 +147,12 @@ export default function ProfileSettingsPage() {
               <p className="text-xs text-slate-500">{email}</p>
             </div>
           </div>
+
+          {profileError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-700">
+              {profileError}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -140,10 +189,11 @@ export default function ProfileSettingsPage() {
           <div className="flex justify-end pt-3 border-t border-slate-100">
             <button
               type="submit"
-              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700"
+              disabled={saving}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
             >
               <Save className="h-3.5 w-3.5" />
-              <span>{saved ? 'Saved!' : 'Save Changes'}</span>
+              <span>{saved ? 'Saved!' : saving ? 'Saving...' : 'Save Changes'}</span>
             </button>
           </div>
         </form>
@@ -153,6 +203,12 @@ export default function ProfileSettingsPage() {
           <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-100 pb-3">
             Change Password
           </h3>
+
+          {pwError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-700">
+              {pwError}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -192,9 +248,10 @@ export default function ProfileSettingsPage() {
           <div className="flex justify-end pt-2">
             <button
               type="submit"
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              disabled={pwSaving}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
-              {pwSaved ? 'Password Updated!' : 'Update Password'}
+              {pwSaved ? 'Password Updated!' : pwSaving ? 'Updating...' : 'Update Password'}
             </button>
           </div>
         </form>

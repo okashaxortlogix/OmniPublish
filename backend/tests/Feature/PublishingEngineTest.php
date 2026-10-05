@@ -87,12 +87,61 @@ class PublishingEngineTest extends TestCase
 
     public function test_health_checks_return_up_and_ready(): void
     {
+        // Root probes (ingress/ALB)
+        $this->getJson('/health')->assertStatus(200)->assertJson(['status' => 'READY']);
+        $this->getJson('/health/live')->assertStatus(200)->assertJson(['status' => 'UP']);
+        $this->getJson('/health/ready')->assertStatus(200)->assertJson(['status' => 'READY']);
+
+        // API v1 probes
+        $this->getJson('/api/v1/health')->assertStatus(200)->assertJson(['status' => 'READY']);
         $response = $this->getJson('/api/v1/health/live');
         $response->assertStatus(200)->assertJson(['status' => 'UP']);
 
         $readyResponse = $this->getJson('/api/v1/health/ready');
         $readyResponse->assertStatus(200)->assertJson(['status' => 'READY']);
     }
+
+    public function test_version_endpoint_returns_safe_release_identity(): void
+    {
+        $response = $this->getJson('/version');
+        $response->assertStatus(200)
+            ->assertJsonStructure([
+                'application',
+                'version',
+                'environment',
+                'commit_sha',
+                'timestamp',
+            ]);
+
+        $apiResponse = $this->getJson('/api/v1/version');
+        $apiResponse->assertStatus(200)
+            ->assertJsonPath('application', config('app.name', 'OmniPublish'));
+    }
+
+
+
+    public function test_health_ready_degraded_when_database_fails_without_leaking_secrets(): void
+    {
+        \Illuminate\Support\Facades\DB::shouldReceive('connection->getPdo')
+            ->andThrow(new \Exception('Connection refused: user=postgres host=10.0.0.1 password=supersecret'));
+
+        $response = $this->getJson('/health/ready');
+        $response->assertStatus(503)
+            ->assertJson([
+                'status' => 'DEGRADED',
+                'checks' => [
+                    'database' => 'UNHEALTHY',
+                ],
+            ]);
+
+        // Verify zero secret leakage in response body
+        $content = $response->getContent();
+        $this->assertStringNotContainsString('supersecret', $content);
+        $this->assertStringNotContainsString('10.0.0.1', $content);
+        $this->assertStringNotContainsString('password', $content);
+    }
+
+
 
     public function test_social_accounts_can_be_retrieved(): void
     {
@@ -180,6 +229,25 @@ class PublishingEngineTest extends TestCase
             'max_attempts' => 3,
             'failure_category' => 'AUTH_REQUIRED',
             'user_facing_error_message' => 'Instagram token expired',
+        ]);
+
+        \Illuminate\Support\Facades\Http::fake([
+            'https://graph.facebook.com/v21.0/ig_user_789?*' => \Illuminate\Support\Facades\Http::response([
+                'account_type' => 'BUSINESS',
+            ], 200),
+            'https://graph.facebook.com/v21.0/ig_user_789/media' => \Illuminate\Support\Facades\Http::response([
+                'id' => 'container_retry_123',
+            ], 200),
+            'https://graph.facebook.com/v21.0/container_retry_123*' => \Illuminate\Support\Facades\Http::response([
+                'status_code' => 'FINISHED',
+            ], 200),
+            'https://graph.facebook.com/v21.0/ig_user_789/media_publish' => \Illuminate\Support\Facades\Http::response([
+                'id' => 'post_retry_published_999',
+            ], 200),
+            'https://graph.facebook.com/v21.0/post_retry_published_999*' => \Illuminate\Support\Facades\Http::response([
+                'id' => 'post_retry_published_999',
+                'permalink' => 'https://www.instagram.com/reel/retry999/',
+            ], 200),
         ]);
 
         $response = $this->postJson("/api/v1/publish/jobs/{$job->id}/retry");

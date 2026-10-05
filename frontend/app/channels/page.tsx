@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
   Share2,
   CheckCircle2,
@@ -159,83 +160,88 @@ export default function ChannelsPage() {
           return (
             <div
               key={platform.key}
-              className={`glass-panel rounded-xl p-5 border transition-all hover:scale-[1.01] ${platform.borderClass}`}
+              className={`glass-panel rounded-xl p-5 border flex flex-col justify-between h-full transition-all hover:scale-[1.01] ${platform.borderClass}`}
             >
-              {/* Card Header */}
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.05] border border-white/10 font-bold ${platform.accentClass}`}>
-                    {platform.key.slice(0, 2)}
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-white">{platform.name}</h3>
-                    <p className="text-[11px] text-slate-400">{platform.category}</p>
-                  </div>
-                </div>
-
-                {/* Health Badge */}
-                {isConnected ? (
-                  isExpired ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400 border border-amber-500/20">
-                      <AlertTriangle className="h-3 w-3" />
-                      Auth Expired
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 border border-emerald-500/20">
-                      <CheckCircle2 className="h-3 w-3" />
-                      Active
-                    </span>
-                  )
-                ) : (
-                  <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium text-slate-400">
-                    Not Connected
-                  </span>
-                )}
-              </div>
-
-              {/* Connected Account Details */}
-              {isConnected && account && (
-                <div className="mt-4 rounded-lg bg-black/40 p-3 border border-white/[0.04]">
-                  <div className="flex items-center gap-2.5">
-                    {account.avatar_url ? (
-                      <img
-                        src={account.avatar_url}
-                        alt="Avatar"
-                        className="h-7 w-7 rounded-full object-cover border border-white/10"
-                      />
-                    ) : (
-                      <div className="h-7 w-7 rounded-full bg-slate-700 flex items-center justify-center text-[10px] text-white">
-                        {account.account_name.slice(0, 2)}
-                      </div>
-                    )}
-                    <div className="truncate">
-                      <p className="text-xs font-semibold text-white truncate">{account.account_name}</p>
-                      <p className="text-[10px] text-slate-400 truncate">{account.account_handle}</p>
+              <div className="flex flex-col flex-1 space-y-4">
+                {/* Card Header */}
+                <div className="flex items-start justify-between min-h-[44px]">
+                  <div className="flex items-center gap-3">
+                    <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.05] border border-white/10 font-bold ${platform.accentClass}`}>
+                      {platform.key.slice(0, 2)}
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-white">{platform.name}</h3>
+                      <p className="text-[11px] text-slate-400">{platform.category}</p>
                     </div>
                   </div>
-                </div>
-              )}
 
-              {/* Scopes Pill Matrix */}
-              <div className="mt-4">
-                <p className="text-[10px] font-semibold text-slate-400 mb-1.5 flex items-center gap-1">
-                  <Shield className="h-3 w-3 text-brand-indigo" />
-                  Granted Permissions:
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {platform.scopesList.map((scope) => (
-                    <span
-                      key={scope}
-                      className="rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-mono text-slate-300 border border-white/[0.06]"
-                    >
-                      {scope}
+                  {/* Health Badge */}
+                  {isConnected ? (
+                    isExpired ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400 border border-amber-500/20">
+                        <AlertTriangle className="h-3 w-3" />
+                        Auth Expired
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 border border-emerald-500/20">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Active
+                      </span>
+                    )
+                  ) : (
+                    <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium text-slate-400">
+                      Not Connected
                     </span>
-                  ))}
+                  )}
+                </div>
+
+                {/* Middle details container */}
+                <div className="flex-1 flex flex-col justify-center min-h-[90px] space-y-3">
+                  {/* Connected Account Details */}
+                  {isConnected && account && (
+                    <div className="rounded-lg bg-black/40 p-3 border border-white/[0.04]">
+                      <div className="flex items-center gap-2.5">
+                        {account.avatar_url ? (
+                          <img
+                            src={account.avatar_url}
+                            alt="Avatar"
+                            className="h-7 w-7 rounded-full object-cover border border-white/10"
+                          />
+                        ) : (
+                          <div className="h-7 w-7 rounded-full bg-slate-700 flex items-center justify-center text-[10px] text-white">
+                            {account.account_name.slice(0, 2)}
+                          </div>
+                        )}
+                        <div className="truncate">
+                          <p className="text-xs font-semibold text-white truncate">{account.account_name}</p>
+                          <p className="text-[10px] text-slate-400 truncate">{account.account_handle}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Scopes Pill Matrix */}
+                  <div>
+                    <p className="text-[10px] font-semibold text-slate-400 mb-1.5 flex items-center gap-1">
+                      <Shield className="h-3 w-3 text-brand-indigo" />
+                      Granted Permissions:
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {platform.scopesList.map((scope) => (
+                        <span
+                          key={scope}
+                          className="rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-mono text-slate-300 border border-white/[0.06]"
+                        >
+                          {scope}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
               {/* Action Buttons */}
-              <div className="mt-5 pt-3 border-t border-white/[0.06] flex items-center justify-between">
+              <div className="mt-5 pt-3 border-t border-white/[0.06] flex items-center justify-between h-12">
                 {isConnected ? (
                   <>
                     <button
@@ -249,18 +255,18 @@ export default function ChannelsPage() {
                     {isExpired ? (
                       <button
                         onClick={() => setConnectingPlatform(platform.key)}
-                        className="rounded-lg bg-amber-500/20 px-3 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500/30 transition-all flex items-center gap-1.5 border border-amber-500/30"
+                        className="rounded-lg bg-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/30 transition-all flex items-center gap-1.5 border border-amber-500/30"
                       >
                         <RefreshCw className="h-3 w-3" />
                         Reconnect Now
                       </button>
                     ) : (
-                      <button
-                        onClick={() => alert(`Connection to ${platform.name} verified active.`)}
-                        className="rounded-lg bg-white/[0.06] px-3 py-1 text-xs font-semibold text-slate-300 hover:bg-white/10 transition-all"
+                      <Link
+                        href={`/connections/${account.id}`}
+                        className="rounded-lg bg-indigo-500/20 px-3 py-1.5 text-xs font-semibold text-indigo-300 hover:bg-indigo-500/30 transition-all border border-indigo-500/30"
                       >
-                        Test Connection
-                      </button>
+                        Manage Channel
+                      </Link>
                     )}
                   </>
                 ) : (

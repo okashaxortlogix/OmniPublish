@@ -21,8 +21,14 @@ class Workspace extends Model
     public static function resolveId(?string $idOrSlug): ?string
     {
         if (!$idOrSlug) return null;
+        static $resolvedCache = [];
+        if (isset($resolvedCache[$idOrSlug])) {
+            return $resolvedCache[$idOrSlug];
+        }
         $ws = static::where('id', $idOrSlug)->orWhere('slug', $idOrSlug)->first();
-        return $ws ? $ws->id : $idOrSlug;
+        $id = $ws ? $ws->id : $idOrSlug;
+        $resolvedCache[$idOrSlug] = $id;
+        return $id;
     }
 
     public function owner(): BelongsTo

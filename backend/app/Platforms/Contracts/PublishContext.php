@@ -11,9 +11,9 @@ class PublishContext
     public function __construct(
         public readonly PublishJob $job,
         public readonly SocialAccount $account,
-        public readonly MediaAsset $media,
-        public readonly array $globalMetadata,
-        public readonly array $platformOverrides,
-        public readonly string $decryptedAccessToken
+        public readonly ?MediaAsset $media = null,
+        public readonly array $globalMetadata = [],
+        public readonly array $platformOverrides = [],
+        public readonly string $decryptedAccessToken = ''
     ) {}
 }

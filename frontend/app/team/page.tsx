@@ -14,6 +14,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
+import { api } from '@/lib/api';
 
 interface Member {
   id: string;
@@ -26,77 +27,78 @@ interface Member {
 }
 
 export default function TeamPage() {
-  const [members, setMembers] = useState<Member[]>([
-    {
-      id: '1',
-      name: 'John Doe',
-      email: 'john@company.com',
-      role: 'Owner',
-      status: 'Active',
-      lastActive: 'Just now',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-    },
-    {
-      id: '2',
-      name: 'Sarah Khan',
-      email: 'sarah@company.com',
-      role: 'Admin',
-      status: 'Active',
-      lastActive: '2 hours ago',
-      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-    },
-    {
-      id: '3',
-      name: 'Ali Raza',
-      email: 'ali@company.com',
-      role: 'Editor',
-      status: 'Active',
-      lastActive: 'Yesterday',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-    },
-    {
-      id: '4',
-      name: 'Ayesha Malik',
-      email: 'ayesha@company.com',
-      role: 'Viewer',
-      status: 'Invited',
-      lastActive: 'Invited 3d ago',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150',
-    },
-  ]);
-
+  const [members, setMembers] = useState<Member[]>([]);
+  const [loading, setLoading] = useState(true);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'Admin' | 'Editor' | 'Viewer'>('Editor');
   const [inviteMessage, setInviteMessage] = useState('');
   const [inviteSuccess, setInviteSuccess] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
-  const handleInviteSubmit = (e: React.FormEvent) => {
+  const loadMembers = async () => {
+    try {
+      setLoading(true);
+      const data = await api.getWorkspaceMembers();
+      if (Array.isArray(data)) {
+        const mapped: Member[] = data.map((m) => {
+          const roleNormalized = (m.role.charAt(0).toUpperCase() + m.role.slice(1).toLowerCase()) as Member['role'];
+          const displayName = m.user?.name || m.user?.email?.split('@')[0] || 'Member';
+          return {
+            id: m.id,
+            name: displayName,
+            email: m.user?.email || '',
+            role: roleNormalized,
+            status: 'Active',
+            lastActive: 'Active',
+            avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=2563eb&color=fff&size=150`,
+          };
+        });
+        setMembers(mapped);
+      }
+    } catch (err) {
+      console.error('Failed to load workspace members:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    loadMembers();
+  }, []);
+
+  const handleInviteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
 
-    const newMember: Member = {
-      id: Date.now().toString(),
-      name: inviteEmail.split('@')[0],
-      email: inviteEmail,
-      role: inviteRole,
-      status: 'Invited',
-      lastActive: 'Just now',
-      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-    };
-
-    setMembers([...members, newMember]);
-    setInviteSuccess(true);
-    setTimeout(() => {
-      setInviteSuccess(false);
-      setInviteModalOpen(false);
-      setInviteEmail('');
-    }, 1000);
+    setInviting(true);
+    setInviteError(null);
+    try {
+      await api.inviteWorkspaceMember(inviteEmail.trim(), inviteRole);
+      setInviteSuccess(true);
+      await loadMembers();
+      setTimeout(() => {
+        setInviteSuccess(false);
+        setInviteModalOpen(false);
+        setInviteEmail('');
+      }, 1200);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to invite member';
+      setInviteError(msg);
+    } finally {
+      setInviting(false);
+    }
   };
 
-  const handleRemoveMember = (id: string) => {
+  const handleRemoveMember = async (id: string) => {
     if (confirm('Are you sure you want to remove this team member?')) {
-      setMembers(members.filter((m) => m.id !== id));
+      try {
+        await api.removeWorkspaceMember(id);
+        setMembers((prev) => prev.filter((m) => m.id !== id));
+      } catch (err) {
+        console.error('Failed to remove member:', err);
+      }
     }
   };
 
@@ -224,6 +226,12 @@ export default function TeamPage() {
                 </div>
               ) : (
                 <form onSubmit={handleInviteSubmit} className="space-y-4">
+                  {inviteError && (
+                    <div className="rounded-lg bg-red-50 border border-red-200 p-2.5 text-xs text-red-700">
+                      {inviteError}
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
                       Email Address
@@ -276,9 +284,10 @@ export default function TeamPage() {
                     </button>
                     <button
                       type="submit"
-                      className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700"
+                      disabled={inviting}
+                      className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
                     >
-                      Send Invitation
+                      {inviting ? 'Inviting...' : 'Send Invitation'}
                     </button>
                   </div>
                 </form>

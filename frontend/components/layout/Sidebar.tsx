@@ -5,22 +5,20 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
-  Film,
-  UploadCloud,
   PenTool,
+  Film,
   Calendar,
   Activity,
-  BarChart3,
   Share2,
+  BarChart3,
   Users,
-  Bell,
   Settings,
-  HelpCircle,
+  Bell,
   Sparkles,
-  ChevronDown,
   Layers,
   ChevronRight
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 interface SidebarProps {
   isCollapsed?: boolean;
@@ -29,104 +27,139 @@ interface SidebarProps {
   onCloseMobile?: () => void;
 }
 
-const MAIN_NAV = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Content Library', href: '/content', icon: Film },
-  { name: 'Upload', href: '/upload', icon: UploadCloud },
-  { name: 'Composer', href: '/composer', icon: PenTool },
-  { name: 'Calendar', href: '/calendar', icon: Calendar },
-  { name: 'Publishing Monitor', href: '/publishing', icon: Activity },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'Connections', href: '/connections', icon: Share2 },
-  { name: 'AI Assistant', href: '/ai', icon: Sparkles },
-  { name: 'Team', href: '/team', icon: Users },
-  { name: 'Notifications', href: '/notifications', icon: Bell },
-  { name: 'Settings', href: '/settings/workspace', icon: Settings },
+interface NavItem {
+  name: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badge?: string;
+}
+
+interface NavSection {
+  title?: string;
+  items: NavItem[];
+}
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    title: 'Publishing',
+    items: [
+      { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+      { name: 'Composer', href: '/composer', icon: PenTool },
+      { name: 'Calendar', href: '/calendar', icon: Calendar },
+      { name: 'Content Library', href: '/content', icon: Film },
+      { name: 'Publishing Monitor', href: '/publishing', icon: Activity },
+    ],
+  },
+  {
+    title: 'Workspace',
+    items: [
+      { name: 'Social Channels', href: '/connections', icon: Share2 },
+      { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+      { name: 'Team Members', href: '/team', icon: Users },
+    ],
+  },
+  {
+    title: 'Account',
+    items: [
+      { name: 'Settings', href: '/settings/workspace', icon: Settings },
+    ],
+  },
 ];
 
-export function Sidebar({ isCollapsed, onToggleCollapse, mobileOpen, onCloseMobile }: SidebarProps) {
+export function Sidebar({ isCollapsed, mobileOpen, onCloseMobile }: SidebarProps) {
   const pathname = usePathname();
+  const { user, workspace } = useAuth();
+  const userName = user?.name || 'Alex Vance';
+  const userEmail = user?.email || 'alex@omnipublish.io';
+  const userAvatar = user?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150';
+  const workspaceName = workspace?.name || 'OmniPublish Studio';
 
   const sidebarContent = (
-    <div className="flex h-full flex-col justify-between bg-white border-r border-slate-200">
-      {/* Top Brand & Workspace Switcher */}
-      <div className="p-4 space-y-4">
-        {/* Logo and Wordmark */}
-        <div className="flex items-center justify-between">
-          <Link href="/dashboard" className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm font-bold">
-              <Layers className="h-5 w-5" />
+    <div className="flex h-full flex-col justify-between bg-white border-r border-slate-200/80">
+      {/* Brand Header */}
+      <div className="flex flex-col flex-1 min-h-0">
+        <div className="h-16 flex items-center justify-between px-5 border-b border-slate-100">
+          <Link href="/dashboard" className="flex items-center gap-2.5 group">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 text-white shadow-2xs group-hover:bg-indigo-600 transition-colors">
+              <Layers className="h-4 w-4" />
             </div>
             {!isCollapsed && (
-              <span className="font-bold text-lg text-slate-900 tracking-tight">
-                Omni<span className="text-blue-600">Publish</span>
-              </span>
+              <div className="flex flex-col">
+                <span className="font-bold text-sm tracking-tight text-slate-900 leading-none">
+                  OmniPublish
+                </span>
+                <span className="text-[10px] text-slate-400 font-medium tracking-wide mt-1">
+                  Social Studio
+                </span>
+              </div>
             )}
           </Link>
         </div>
 
-        {/* Workspace Selector Dropdown */}
-        {!isCollapsed && (
-          <div className="relative">
-            <Link
-              href="/settings/workspace"
-              className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs hover:bg-slate-100 transition-colors"
-            >
-              <div className="flex items-center gap-2 truncate">
-                <div className="h-4 w-4 rounded bg-blue-600 flex items-center justify-center text-[10px] text-white font-bold">
-                  O
-                </div>
-                <span className="font-semibold text-slate-800 truncate">OmniPublish Studio</span>
-              </div>
-              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-            </Link>
-          </div>
-        )}
+        {/* Navigation Sections */}
+        <div className="flex-1 overflow-y-auto px-3.5 py-4 space-y-6">
+          {NAV_SECTIONS.map((section, idx) => (
+            <div key={section.title || idx} className="space-y-1">
+              {section.title && !isCollapsed && (
+                <p className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  {section.title}
+                </p>
+              )}
 
-        {/* Navigation Items */}
-        <nav className="space-y-1 pt-1">
-          {MAIN_NAV.map((item) => {
-            const Icon = item.icon;
-            const isActive =
-              pathname === item.href ||
-              (item.href === '/dashboard' && pathname === '/') ||
-              (item.href !== '/dashboard' && pathname.startsWith(item.href));
+              {section.items.map((item) => {
+                const Icon = item.icon;
+                const isActive =
+                  pathname === item.href ||
+                  (item.href === '/dashboard' && pathname === '/') ||
+                  (item.href !== '/dashboard' && pathname.startsWith(item.href));
 
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                onClick={onCloseMobile}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-                  isActive
-                    ? 'bg-blue-50 text-blue-600 font-semibold'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-                title={isCollapsed ? item.name : undefined}
-              >
-                <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
-                {!isCollapsed && <span>{item.name}</span>}
-              </Link>
-            );
-          })}
-        </nav>
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    onClick={onCloseMobile}
+                    className={`group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-medium transition-all ${
+                      isActive
+                        ? 'bg-slate-900 text-white shadow-2xs font-semibold'
+                        : 'text-slate-600 hover:bg-slate-100/70 hover:text-slate-900'
+                    }`}
+                    title={isCollapsed ? item.name : undefined}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Icon
+                        className={`h-4 w-4 shrink-0 transition-colors ${
+                          isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-700'
+                        }`}
+                      />
+                      {!isCollapsed && <span className="truncate">{item.name}</span>}
+                    </div>
+
+                    {!isCollapsed && isActive && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Bottom User Profile & Support */}
-      <div className="p-4 border-t border-slate-100 space-y-2">
+      {/* Bottom Profile Footer */}
+      <div className="p-3 border-t border-slate-100">
         <Link
           href="/settings/profile"
-          className="flex items-center gap-3 rounded-lg p-2 hover:bg-slate-50 transition-colors text-xs"
+          className="flex items-center gap-2.5 rounded-xl p-2 text-slate-700 hover:bg-slate-50 transition-colors group"
         >
-          <img
-            src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150"
-            alt="John Doe"
-            className="h-8 w-8 rounded-full object-cover border border-slate-200"
-          />
+          <div className="h-8 w-8 rounded-xl bg-slate-900 text-white flex items-center justify-center text-xs font-bold shrink-0 shadow-2xs">
+            {userName.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)}
+          </div>
           {!isCollapsed && (
-            <div className="truncate">
-              <p className="font-semibold text-slate-800 truncate">John Doe</p>
-              <p className="text-[11px] text-slate-500 truncate">john@company.com</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-slate-900 truncate group-hover:text-indigo-600 transition-colors">
+                {userName}
+              </p>
+              <p className="text-[11px] text-slate-400 truncate">{workspaceName}</p>
             </div>
           )}
         </Link>
@@ -139,7 +172,7 @@ export function Sidebar({ isCollapsed, onToggleCollapse, mobileOpen, onCloseMobi
       {/* Desktop Sidebar */}
       <aside
         className={`hidden md:block shrink-0 transition-all duration-200 ${
-          isCollapsed ? 'w-16' : 'w-60'
+          isCollapsed ? 'w-16' : 'w-56'
         } h-screen sticky top-0`}
       >
         {sidebarContent}
@@ -148,8 +181,8 @@ export function Sidebar({ isCollapsed, onToggleCollapse, mobileOpen, onCloseMobi
       {/* Mobile Drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden flex">
-          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onCloseMobile} />
-          <div className="relative w-64 max-w-[80vw] h-full shadow-2xl z-10">
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={onCloseMobile} />
+          <div className="relative w-60 max-w-[80vw] h-full shadow-2xl z-10">
             {sidebarContent}
           </div>
         </div>

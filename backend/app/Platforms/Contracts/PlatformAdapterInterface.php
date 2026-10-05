@@ -2,7 +2,7 @@
 
 namespace App\Platforms\Contracts;
 
-interface PlatformAdapterInterface
+interface PlatformAdapterInterface extends PlatformPublisherInterface
 {
     /**
      * Get platform identifier (e.g., YOUTUBE, TIKTOK, INSTAGRAM)

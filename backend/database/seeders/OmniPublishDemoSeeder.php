@@ -41,6 +41,30 @@ class OmniPublishDemoSeeder extends Seeder
             ['role' => 'OWNER']
         );
 
+        $sarah = User::updateOrCreate(
+            ['email' => 'sarah@omnipublish.io'],
+            [
+                'name' => 'Sarah Khan',
+                'password' => Hash::make('Password123!'),
+            ]
+        );
+        WorkspaceMember::updateOrCreate(
+            ['workspace_id' => $workspace->id, 'user_id' => $sarah->id],
+            ['role' => 'ADMIN']
+        );
+
+        $ali = User::updateOrCreate(
+            ['email' => 'ali@omnipublish.io'],
+            [
+                'name' => 'Ali Raza',
+                'password' => Hash::make('Password123!'),
+            ]
+        );
+        WorkspaceMember::updateOrCreate(
+            ['workspace_id' => $workspace->id, 'user_id' => $ali->id],
+            ['role' => 'EDITOR']
+        );
+
         // 3. Social Accounts
         $yt = SocialAccount::updateOrCreate(
             ['workspace_id' => $workspace->id, 'platform' => 'YOUTUBE'],

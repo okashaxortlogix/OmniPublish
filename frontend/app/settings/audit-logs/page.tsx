@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   History,
@@ -11,6 +11,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
+import { api } from '@/lib/api';
 
 interface AuditLogEntry {
   id: string;
@@ -24,54 +25,37 @@ interface AuditLogEntry {
 
 export default function AuditLogsPage() {
   const [selectedAction, setSelectedAction] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const logs: AuditLogEntry[] = [
-    {
-      id: '1',
-      dateTime: 'Apr 28, 2026 10:24 AM',
-      user: 'John Doe',
-      action: 'PUBLISH_REQUESTED',
-      resource: 'Batch #OP-2026-00042',
-      details: 'Target: YouTube, TikTok, Instagram',
-      result: 'Success',
-    },
-    {
-      id: '2',
-      dateTime: 'Apr 28, 2026 09:15 AM',
-      user: 'Sarah Khan',
-      action: 'ACCOUNT_CONNECTED',
-      resource: 'TikTok Profile',
-      details: '@tiktokcreator via OAuth 2.0',
-      result: 'Success',
-    },
-    {
-      id: '3',
-      dateTime: 'Apr 27, 2026 04:30 PM',
-      user: 'Ali Raza',
-      action: 'CONTENT_UPDATED',
-      resource: 'cnt-1',
-      details: 'Updated global video description & hashtags',
-      result: 'Success',
-    },
-    {
-      id: '4',
-      dateTime: 'Apr 26, 2026 02:40 PM',
-      user: 'Ayesha Malik',
-      action: 'MEMBER_ADDED',
-      resource: 'Team',
-      details: 'Invited as Viewer',
-      result: 'Success',
-    },
-    {
-      id: '5',
-      dateTime: 'Apr 25, 2026 11:12 AM',
-      user: 'SYSTEM',
-      action: 'LOGIN',
-      resource: 'Session',
-      details: 'Web session initialized (IP: 192.168.1.45)',
-      result: 'Success',
-    },
-  ];
+  useEffect(() => {
+    loadAuditLogs();
+  }, []);
+
+  const loadAuditLogs = async () => {
+    try {
+      setLoading(true);
+      const res = await api.getAuditLogs();
+      const rawEvents = res?.data || (Array.isArray(res) ? res : []);
+      if (Array.isArray(rawEvents)) {
+        const mapped: AuditLogEntry[] = rawEvents.map((evt: any) => ({
+          id: evt.id,
+          dateTime: evt.created_at ? new Date(evt.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recently',
+          user: evt.user?.name || evt.user?.email || 'System Worker',
+          action: evt.action || 'EVENT',
+          resource: evt.resource_type ? `${evt.resource_type}${evt.resource_id ? ' #' + evt.resource_id.slice(0, 8) : ''}` : 'Workspace',
+          details: evt.metadata ? (typeof evt.metadata === 'object' ? JSON.stringify(evt.metadata).slice(0, 80) : String(evt.metadata)) : 'Action completed successfully',
+          result: 'Success',
+        }));
+        setLogs(mapped);
+      }
+    } catch (err) {
+      console.error('Failed to load audit logs:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const tabs = [
     { id: 'general', name: 'General', href: '/settings/workspace' },

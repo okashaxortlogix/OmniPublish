@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Bell,
@@ -13,6 +13,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
+import { api } from '@/lib/api';
 
 interface NotificationItem {
   id: string;
@@ -26,44 +27,26 @@ interface NotificationItem {
 
 export default function NotificationsPage() {
   const [activeCategory, setActiveCategory] = useState<string>('All');
-  const [notifications, setNotifications] = useState<NotificationItem[]>([
-    {
-      id: '1',
-      category: 'Publishing',
-      title: 'Your video has been published to YouTube',
-      description: 'How We Scaled OmniPublish from 0 to 10k Users is now live on YouTube.',
-      timestamp: 'Apr 28, 2026 • 10:25 AM',
-      read: false,
-      link: '/publishing',
-    },
-    {
-      id: '2',
-      category: 'Account',
-      title: 'Instagram authorization requires attention',
-      description: 'Your Instagram OAuth token expired. Please reauthorize to resume automated publishing.',
-      timestamp: 'Apr 27, 2026 • 04:12 PM',
-      read: false,
-      link: '/connections',
-    },
-    {
-      id: '3',
-      category: 'Team',
-      title: 'New team member joined your workspace',
-      description: 'Sarah Khan accepted your invitation as Admin.',
-      timestamp: 'Apr 26, 2026 • 02:40 PM',
-      read: true,
-      link: '/team',
-    },
-    {
-      id: '4',
-      category: 'Publishing',
-      title: 'Post scheduled for tomorrow',
-      description: 'Python Tutorial #12 is scheduled for broadcast across YouTube & Facebook.',
-      timestamp: 'Apr 25, 2026 • 01:15 PM',
-      read: true,
-      link: '/calendar',
-    },
-  ]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadNotifications();
+  }, []);
+
+  const loadNotifications = async () => {
+    try {
+      setLoading(true);
+      const data = await api.getNotifications();
+      if (Array.isArray(data) && data.length > 0) {
+        setNotifications(data);
+      }
+    } catch (err) {
+      console.error('Failed to load notifications:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const markAllAsRead = () => {
     setNotifications(notifications.map((n) => ({ ...n, read: true })));

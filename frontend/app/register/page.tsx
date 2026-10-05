@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Layers, ArrowRight, CheckCircle2 } from 'lucide-react';
 
+import { setStoredAuthToken, setStoredWorkspaceId } from '@/lib/api';
+
 export default function RegisterPage() {
   const router = useRouter();
   const [fullName, setFullName] = useState('');
@@ -13,13 +15,17 @@ export default function RegisterPage() {
   const [workspaceName, setWorkspaceName] = useState('');
   const [terms, setTerms] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError(null);
+
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8001/api/v1';
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/v1/auth/register', {
+      const res = await fetch(`${apiBase}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
@@ -30,9 +36,25 @@ export default function RegisterPage() {
         }),
       });
 
+      const data = await res.json();
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || 'Registration failed');
+      }
+
+      if (data.data?.token) {
+        setStoredAuthToken(data.data.token);
+      }
+      if (data.data?.currentWorkspace) {
+        setStoredWorkspaceId(data.data.currentWorkspace.slug || data.data.currentWorkspace.id);
+      }
+      if (data.data?.user) {
+        localStorage.setItem('omnipublish_user', JSON.stringify(data.data.user));
+      }
+
       router.push('/dashboard');
-    } catch (err) {
-      router.push('/dashboard');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Registration failed';
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -85,6 +107,12 @@ export default function RegisterPage() {
           </div>
 
           <form onSubmit={handleRegister} className="space-y-4">
+            {error && (
+              <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-700">
+                {error}
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Full name</label>
               <input

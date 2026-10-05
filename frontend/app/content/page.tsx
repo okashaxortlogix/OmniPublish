@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Film,
@@ -22,6 +22,8 @@ import {
   Archive
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
+import { api } from '@/lib/api';
+import { PublishBatch } from '@/lib/types';
 
 interface ContentItem {
   id: string;
@@ -41,52 +43,55 @@ export default function ContentLibraryPage() {
   const [selectedPlatform, setSelectedPlatform] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
 
-  const [items, setItems] = useState<ContentItem[]>([
-    {
-      id: 'cnt-1',
-      title: 'How We Scaled OmniPublish from 0 to 10k Users',
-      thumbnail: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600',
-      duration: '01:45',
-      status: 'Published',
-      platforms: ['YOUTUBE', 'TIKTOK', 'INSTAGRAM'],
-      createdAt: 'Apr 28, 2026',
-      owner: { name: 'John Doe', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150' },
-      views: '42.5K',
-    },
-    {
-      id: 'cnt-2',
-      title: 'Python Tutorial #12: Async Architecture in 2026',
-      thumbnail: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600',
-      duration: '03:12',
-      status: 'Scheduled',
-      platforms: ['YOUTUBE', 'FACEBOOK'],
-      createdAt: 'Apr 27, 2026',
-      owner: { name: 'Sarah Khan', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150' },
-      views: '—',
-    },
-    {
-      id: 'cnt-3',
-      title: 'Design Tips 2026: Micro-animations in SaaS Products',
-      thumbnail: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=600',
-      duration: '00:58',
-      status: 'Published',
-      platforms: ['TIKTOK', 'INSTAGRAM'],
-      createdAt: 'Apr 26, 2026',
-      owner: { name: 'John Doe', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150' },
-      views: '68.1K',
-    },
-    {
-      id: 'cnt-4',
-      title: 'Next.js 15 & Laravel API Fullstack Boilerplate',
-      thumbnail: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=600',
-      duration: '04:20',
-      status: 'Draft',
-      platforms: ['YOUTUBE', 'TIKTOK'],
-      createdAt: 'Apr 25, 2026',
-      owner: { name: 'Ali Raza', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150' },
-      views: '—',
-    },
-  ]);
+  const [items, setItems] = useState<ContentItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadContent = async () => {
+    try {
+      setLoading(true);
+      const batches = await api.getPublishBatches();
+      if (Array.isArray(batches) && batches.length > 0) {
+        const mapped: ContentItem[] = batches.map((batch: PublishBatch) => {
+          const jobs = batch.publish_jobs || batch.jobs || [];
+          const platforms = jobs.map((j) => j.platform as any);
+          const allPublished = jobs.length > 0 && jobs.every((j) => j.status === 'PUBLISHED');
+          const isScheduled = Boolean(batch.scheduled_for && new Date(batch.scheduled_for) > new Date());
+
+          return {
+            id: batch.id,
+            title: batch.content_item?.title || batch.content_item?.global_metadata?.title || 'OmniPublish Video Post',
+            thumbnail: batch.content_item?.media_asset?.thumbnail_path || batch.content_item?.media_asset?.url || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600',
+            duration: '01:45',
+            status: isScheduled ? 'Scheduled' : allPublished ? 'Published' : 'Draft',
+            platforms: platforms.length > 0 ? platforms : ['YOUTUBE', 'TIKTOK'],
+            createdAt: batch.created_at ? new Date(batch.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recently',
+            owner: { name: 'Alex Vance', avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150' },
+            views: '42.5K',
+          };
+        });
+        setItems(mapped);
+      }
+    } catch (err) {
+      console.error('Failed to load content items:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadContent();
+  }, []);
+
+  const handleDeleteItem = async (id: string) => {
+    if (confirm('Are you sure you want to delete this content item?')) {
+      try {
+        await api.deletePublishBatch(id);
+        setItems((prev) => prev.filter((i) => i.id !== id));
+      } catch (err) {
+        console.error('Failed to delete item:', err);
+      }
+    }
+  };
 
   const filteredItems = items.filter((item) => {
     const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase());
@@ -266,6 +271,14 @@ export default function ContentLibraryPage() {
                       >
                         Open →
                       </Link>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteItem(item.id)}
+                        className="text-slate-400 hover:text-rose-600 transition-colors p-1"
+                        title="Delete Post"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
                 </div>

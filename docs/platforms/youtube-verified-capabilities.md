@@ -46,7 +46,7 @@
 ## 4. Account Restrictions & Quota Limits
 - **Default Quota**: 10,000 units/day per Google Cloud project.
   - Video Insert cost: **1,600 units per video upload**.
-  - Default project quota allows ~6 video uploads per day without an approved quota extension request.
+  - Quota consumption depends on the overall distribution of API operations across the project (inserts cost 1,600 units, list operations cost 1 unit). Projects requiring higher daily capacity can request a quota extension via Google Cloud Console.
 - **Quota Exceeded Error**: HTTP 403 `quotaExceeded`. Must be classified as `RATE_LIMITED` / `QUOTA_EXCEEDED` with clear user messaging.
 - **Account Verification**: Unverified YouTube accounts cannot upload videos longer than 15 minutes or set custom thumbnails.
 

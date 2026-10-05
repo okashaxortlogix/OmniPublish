@@ -23,7 +23,11 @@ import { AppShell } from '@/components/layout/AppShell';
 import { api } from '@/lib/api';
 import { PublishBatch, SocialAccount, AnalyticsSummary } from '@/lib/types';
 
+import { useAuth } from '@/context/AuthContext';
+
 export default function DashboardPage() {
+  const { user } = useAuth();
+  const firstName = user?.name ? user.name.split(' ')[0] : 'Creator';
   const [batches, setBatches] = useState<PublishBatch[]>([]);
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
@@ -55,7 +59,7 @@ export default function DashboardPage() {
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              Good morning, John!
+              Good morning, {firstName}!
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
               Here&apos;s what&apos;s happening with your content today.

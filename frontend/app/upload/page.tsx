@@ -12,9 +12,14 @@ import {
   Image as ImageIcon,
   ArrowRight,
   FileVideo,
-  X
+  X,
+  Loader2,
+  RefreshCw,
+  Sparkles
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
+import { api } from '@/lib/api';
+import { MediaAsset } from '@/lib/types';
 
 export default function UploadPage() {
   const router = useRouter();
@@ -31,7 +36,15 @@ export default function UploadPage() {
 
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadStatusText, setUploadStatusText] = useState<string>('Uploading asset...');
+  const [uploadedAssetId, setUploadedAssetId] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Phase 2: Processing state machine tracking
+  const [processingStatus, setProcessingStatus] = useState<'QUEUED' | 'PROCESSING' | 'READY' | 'FAILED' | null>(null);
+  const [processingStage, setProcessingStage] = useState<string | null>(null);
+  const [processingError, setProcessingError] = useState<string | null>(null);
+  const [mediaDetails, setMediaDetails] = useState<MediaAsset | null>(null);
 
   // Form Fields
   const [assetName, setAssetName] = useState('Product_Launch_V2_Final.mp4');
@@ -70,7 +83,7 @@ export default function UploadPage() {
     }
   };
 
-  const handleSelectedFile = (selectedFile: File) => {
+  const handleSelectedFile = async (selectedFile: File) => {
     setValidationError(null);
     // Validate format
     const validExtensions = ['mp4', 'mov', 'avi', 'mkv', 'webm'];
@@ -81,34 +94,143 @@ export default function UploadPage() {
       return;
     }
 
-    // Size limit: 2GB
-    if (selectedFile.size > 2 * 1024 * 1024 * 1024) {
-      setValidationError('File exceeds the 2GB size limit.');
+    // Size limit: 500MB
+    if (selectedFile.size > 500 * 1024 * 1024) {
+      setValidationError('File exceeds the 500MB size limit.');
       return;
     }
 
     setIsUploading(true);
-    setUploadProgress(15);
+    setUploadProgress(5);
+    setUploadStatusText('Requesting upload authorization...');
 
-    // Simulate upload progress
-    const timer = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(timer);
-          setIsUploading(false);
-          setFile({
-            name: selectedFile.name,
-            size: `${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB`,
-            duration: '01:45',
-            resolution: '1920x1080 (16:9)',
-            format: ext.toUpperCase(),
+    try {
+      // 1. Request upload authorization from backend API
+      const auth = await api.requestUploadAuthorization(
+        selectedFile.name,
+        selectedFile.type || 'video/mp4',
+        selectedFile.size
+      );
+
+      setUploadStatusText('Uploading to object storage...');
+      setUploadProgress(20);
+
+      // 2. Direct upload to storage endpoint (S3 presigned PUT or direct stream POST)
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(auth.method, auth.upload_url, true);
+
+        // Apply headers
+        if (auth.headers) {
+          Object.entries(auth.headers).forEach(([k, v]) => {
+            xhr.setRequestHeader(k, v);
           });
-          setAssetName(selectedFile.name);
-          return 100;
         }
-        return prev + 25;
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const percent = Math.min(85, Math.round(20 + (e.loaded / e.total) * 65));
+            setUploadProgress(percent);
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`Storage upload failed with HTTP ${xhr.status}`));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('Network error during storage upload.'));
+        xhr.ontimeout = () => reject(new Error('Storage upload timed out.'));
+
+        if (auth.method === 'POST') {
+          const formData = new FormData();
+          formData.append('file', selectedFile);
+          xhr.send(formData);
+        } else {
+          xhr.send(selectedFile);
+        }
       });
-    }, 200);
+
+      // 3. Backend Verification & Async Queuing
+      setUploadStatusText('Backend verifying uploaded object...');
+      setUploadProgress(90);
+
+      const confirmedMedia = await api.confirmMediaUpload(auth.media_id);
+
+      setUploadProgress(100);
+      setIsUploading(false);
+      setUploadedAssetId(confirmedMedia.id);
+      setProcessingStatus(confirmedMedia.status as any);
+      setProcessingStage(confirmedMedia.processing_stage || 'queued');
+      setAssetName(selectedFile.name);
+
+      setFile({
+        name: selectedFile.name,
+        size: `${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB`,
+        duration: confirmedMedia.duration_seconds ? `${Math.floor(confirmedMedia.duration_seconds / 60)}:${Math.round(confirmedMedia.duration_seconds % 60).toString().padStart(2, '0')}` : 'Analyzing...',
+        resolution: confirmedMedia.width && confirmedMedia.height ? `${confirmedMedia.width}x${confirmedMedia.height}` : 'Probing...',
+        format: ext.toUpperCase(),
+      });
+
+      // Poll background processing worker
+      pollProcessingStatus(confirmedMedia.id);
+    } catch (err: unknown) {
+      console.error('Direct upload pipeline error:', err);
+      setIsUploading(false);
+      setUploadProgress(0);
+      const msg = err instanceof Error ? err.message : 'Upload failed. Please verify storage and network connectivity.';
+      setValidationError(msg);
+    }
+  };
+
+  const pollProcessingStatus = (assetId: string) => {
+    let attempts = 0;
+    const maxAttempts = 60; // 2 minutes (every 2s)
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const asset = await api.getMediaAsset(assetId);
+        setProcessingStatus(asset.status as any);
+        setProcessingStage(asset.processing_stage || null);
+        setMediaDetails(asset);
+
+        if (asset.status === 'READY') {
+          clearInterval(interval);
+          setFile((prev) => prev ? {
+            ...prev,
+            duration: asset.duration_seconds ? `${Math.floor(asset.duration_seconds / 60)}:${Math.round(asset.duration_seconds % 60).toString().padStart(2, '0')}` : '00:00',
+            resolution: asset.width && asset.height ? `${asset.width}x${asset.height}` : prev.resolution,
+            format: asset.video_codec ? asset.video_codec.toUpperCase() : prev.format,
+          } : null);
+        } else if (asset.status === 'FAILED') {
+          clearInterval(interval);
+          setProcessingError(asset.processing_error || 'Video transcoding failed. Media format might be unsupported.');
+        }
+
+        if (attempts >= maxAttempts) {
+          clearInterval(interval);
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+      }
+    }, 2000);
+  };
+
+  const handleRetryProcessing = async () => {
+    if (!uploadedAssetId) return;
+    try {
+      setProcessingError(null);
+      setProcessingStatus('QUEUED');
+      setProcessingStage('re-queued');
+      await api.reprocessMedia(uploadedAssetId);
+      pollProcessingStatus(uploadedAssetId);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to reprocess asset';
+      setProcessingError(msg);
+    }
   };
 
   const addTag = (e: React.KeyboardEvent) => {
@@ -147,6 +269,7 @@ export default function UploadPage() {
           tags,
           hashtags,
           assetName,
+          mediaAssetId: uploadedAssetId,
         })
       );
     }
@@ -226,7 +349,7 @@ export default function UploadPage() {
             {isUploading && (
               <div className="w-full max-w-xs mt-6 space-y-2">
                 <div className="flex justify-between text-xs text-slate-600 font-medium">
-                  <span>Uploading asset...</span>
+                  <span>{uploadStatusText}</span>
                   <span>{uploadProgress}%</span>
                 </div>
                 <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
@@ -281,11 +404,57 @@ export default function UploadPage() {
               </div>
             </div>
 
+            {/* Asynchronous Processing State Banner */}
+            {processingStatus && (
+              <div className={`p-4 rounded-lg border text-xs flex items-center justify-between gap-3 ${
+                processingStatus === 'READY'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : processingStatus === 'FAILED'
+                  ? 'bg-red-50 border-red-200 text-red-800'
+                  : 'bg-blue-50 border-blue-200 text-blue-800'
+              }`}>
+                <div className="flex items-center gap-2.5">
+                  {processingStatus === 'READY' ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                  ) : processingStatus === 'FAILED' ? (
+                    <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+                  ) : (
+                    <Loader2 className="h-4 w-4 text-blue-600 animate-spin shrink-0" />
+                  )}
+                  <div>
+                    <div className="font-semibold capitalize">
+                      {processingStatus === 'READY' ? 'FFmpeg Processing Complete' :
+                       processingStatus === 'FAILED' ? 'Video Transcoding Failed' :
+                       `Processing Video: ${processingStage || 'In Worker Queue'}`}
+                    </div>
+                    <div className="text-[11px] opacity-85 mt-0.5">
+                      {processingStatus === 'READY'
+                        ? `Probed ${mediaDetails?.width || 1920}x${mediaDetails?.height || 1080} • Codec: ${mediaDetails?.video_codec || 'h264'} / ${mediaDetails?.audio_codec || 'aac'} • Thumbnail generated.`
+                        : processingStatus === 'FAILED'
+                        ? (processingError || 'An error occurred during transcoding. You can retry safely.')
+                        : 'FFmpeg queue worker is probing metadata and extracting representative thumbnail.'}
+                    </div>
+                  </div>
+                </div>
+
+                {processingStatus === 'FAILED' && (
+                  <button
+                    type="button"
+                    onClick={handleRetryProcessing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-md font-medium text-xs hover:bg-red-700 transition"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    <span>Retry</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Video Player Mock with Thumbnail */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
               <div className="relative aspect-video rounded-lg overflow-hidden bg-slate-900 flex items-center justify-center group shadow-inner">
                 <img
-                  src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600"
+                  src={mediaDetails?.thumbnail_url || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600"}
                   alt="Video thumbnail"
                   className="w-full h-full object-cover opacity-85"
                 />

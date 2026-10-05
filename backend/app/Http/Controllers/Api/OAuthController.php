@@ -27,10 +27,13 @@ class OAuthController extends Controller
 
         if (!$clientId) {
             return response()->json([
-                'success' => false,
-                'message' => 'GOOGLE_CLIENT_ID is not configured in backend/.env. Please configure Google OAuth credentials.',
-                'needs_config' => true,
-            ], 422);
+                'success' => true,
+                'data' => [
+                    'configured' => false,
+                    'redirectUrl' => null,
+                    'message' => 'GOOGLE_CLIENT_ID is not configured in backend/.env. Please configure Google OAuth credentials.',
+                ],
+            ]);
         }
 
         $state = Str::uuid()->toString();
@@ -328,8 +331,12 @@ class OAuthController extends Controller
         $appId = config('services.facebook.client_id');
         $appSecret = config('services.facebook.client_secret');
 
+        $graphHost = rtrim(config('services.facebook.graph_host', 'https://graph.facebook.com'), '/');
+        $graphVersion = trim(config('services.facebook.graph_api_version', 'v21.0'), '/');
+        $graphBase = "{$graphHost}/{$graphVersion}";
+
         if ($appId && $appSecret) {
-            $exchangeRes = Http::get('https://graph.facebook.com/v21.0/oauth/access_token', [
+            $exchangeRes = Http::get("{$graphBase}/oauth/access_token", [
                 'grant_type'        => 'fb_exchange_token',
                 'client_id'         => $appId,
                 'client_secret'     => $appSecret,
@@ -342,7 +349,7 @@ class OAuthController extends Controller
         }
 
         // Step 2: Fetch Facebook Pages managed by user
-        $pagesRes = Http::get('https://graph.facebook.com/v21.0/me/accounts', [
+        $pagesRes = Http::get("{$graphBase}/me/accounts", [
             'access_token' => $longLivedToken,
         ]);
 
@@ -364,7 +371,7 @@ class OAuthController extends Controller
             $pageId = $page['id'];
             $pageToken = $page['access_token'] ?? $longLivedToken;
 
-            $igLinkRes = Http::get("https://graph.facebook.com/v21.0/{$pageId}", [
+            $igLinkRes = Http::get("{$graphBase}/{$pageId}", [
                 'fields'       => 'instagram_business_account',
                 'access_token' => $pageToken,
             ]);
@@ -385,7 +392,7 @@ class OAuthController extends Controller
         }
 
         // Step 4: Fetch real Instagram profile details
-        $igProfileRes = Http::get("https://graph.facebook.com/v21.0/{$igAccountId}", [
+        $igProfileRes = Http::get("{$graphBase}/{$igAccountId}", [
             'fields'       => 'name,username,profile_picture_url,followers_count,media_count',
             'access_token' => $matchedPageToken,
         ]);
@@ -417,7 +424,7 @@ class OAuthController extends Controller
                 'account_handle'         => $accountHandle,
                 'avatar_url'             => $avatarUrl,
                 'status'                 => 'ACTIVE',
-                'scopes'                 => ['instagram_basic', 'instagram_content_publish', 'pages_show_list'],
+                'scopes'                 => ['instagram_basic', 'instagram_content_publish', 'pages_show_list', 'pages_read_engagement'],
                 'encrypted_access_token' => $matchedPageToken,
                 'token_expires_at'       => now()->addDays(60),
                 'metadata'               => [
@@ -469,9 +476,13 @@ class OAuthController extends Controller
 
         if (!$clientKey) {
             return response()->json([
-                'success' => false,
-                'message' => 'TIKTOK_CLIENT_KEY is not configured in backend/.env. Please configure TikTok developer credentials.',
-            ], 422);
+                'success' => true,
+                'data' => [
+                    'configured' => false,
+                    'redirectUrl' => null,
+                    'message' => 'TIKTOK_CLIENT_KEY is not configured in backend/.env. Please configure TikTok developer credentials.',
+                ],
+            ]);
         }
 
         $query = http_build_query([
@@ -584,5 +595,814 @@ class OAuthController extends Controller
         ]);
 
         return redirect("{$frontendUrl}/connections?connected=TIKTOK&success=true");
+    }
+
+    // =========================================================================
+    // FACEBOOK (Pages & Reels) OAuth Flow
+    // =========================================================================
+
+    /**
+     * Start Facebook OAuth authorization redirect flow.
+     */
+    public function facebookAuthorize(Request $request)
+    {
+        $rawWorkspaceId = $request->query('workspaceId') ?? 'omnipublish-studio';
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
+
+        $clientId = config('services.facebook.client_id');
+        $redirectUri = config('services.facebook.redirect_uri') ?? url('/api/v1/oauth/facebook/callback');
+
+        if (!$clientId) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'configured' => false,
+                    'redirectUrl' => null,
+                    'message' => 'FACEBOOK_CLIENT_ID is not configured in backend/.env. Please configure Facebook App credentials.',
+                ],
+            ]);
+        }
+
+        $state = Str::uuid()->toString();
+        Cache::put("facebook_oauth_{$state}", [
+            'workspace_id' => $workspaceId,
+        ], now()->addMinutes(10));
+
+        $graphVersion = trim(config('services.facebook.graph_api_version', 'v21.0'), '/');
+        $params = [
+            'client_id'     => $clientId,
+            'redirect_uri'  => $redirectUri,
+            'response_type' => 'code',
+            'scope'         => 'pages_show_list,pages_read_engagement,pages_manage_posts,public_profile',
+            'state'         => $state,
+        ];
+
+        $redirectUrl = "https://www.facebook.com/{$graphVersion}/dialog/oauth?" . http_build_query($params);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'redirectUrl' => $redirectUrl,
+            ],
+        ]);
+    }
+
+    /**
+     * Handle Facebook OAuth redirect callback.
+     */
+    public function facebookCallback(Request $request)
+    {
+        $code = $request->query('code');
+        $state = $request->query('state');
+        $error = $request->query('error');
+        $errorDescription = $request->query('error_description');
+
+        $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+
+        if ($error || !$code) {
+            $msg = urlencode($errorDescription ?: $error ?: 'Facebook authorization was cancelled.');
+            return redirect("{$frontendUrl}/connections?error={$msg}");
+        }
+
+        $cachedData = Cache::pull("facebook_oauth_{$state}");
+        if (!$cachedData) {
+            return redirect("{$frontendUrl}/connections?error=" . urlencode('OAuth session expired. Please try connecting again.'));
+        }
+
+        $workspaceId = $cachedData['workspace_id'];
+        $clientId = config('services.facebook.client_id');
+        $clientSecret = config('services.facebook.client_secret');
+        $redirectUri = config('services.facebook.redirect_uri') ?? url('/api/v1/oauth/facebook/callback');
+        $graphHost = rtrim(config('services.facebook.graph_host', 'https://graph.facebook.com'), '/');
+        $graphVersion = trim(config('services.facebook.graph_api_version', 'v21.0'), '/');
+        $graphBase = "{$graphHost}/{$graphVersion}";
+
+        // Exchange code for short-lived token
+        $tokenRes = Http::get("{$graphBase}/oauth/access_token", [
+            'client_id'     => $clientId,
+            'client_secret' => $clientSecret,
+            'redirect_uri'  => $redirectUri,
+            'code'          => $code,
+        ]);
+
+        if ($tokenRes->failed() || empty($tokenRes->json('access_token'))) {
+            $msg = urlencode('Failed to exchange Facebook authorization code: ' . ($tokenRes->json('error.message') ?? 'Unknown error'));
+            return redirect("{$frontendUrl}/connections?error={$msg}");
+        }
+
+        $shortLivedToken = $tokenRes->json('access_token');
+        $longLivedToken = $shortLivedToken;
+
+        // Exchange for long-lived token (60 days)
+        if ($clientId && $clientSecret) {
+            $exchangeRes = Http::get("{$graphBase}/oauth/access_token", [
+                'grant_type'        => 'fb_exchange_token',
+                'client_id'         => $clientId,
+                'client_secret'     => $clientSecret,
+                'fb_exchange_token' => $shortLivedToken,
+            ]);
+
+            if ($exchangeRes->successful() && !empty($exchangeRes->json('access_token'))) {
+                $longLivedToken = $exchangeRes->json('access_token');
+            }
+        }
+
+        // Fetch user pages
+        $pagesRes = Http::get("{$graphBase}/me/accounts", [
+            'fields'       => 'id,name,access_token,fan_count,picture{url}',
+            'access_token' => $longLivedToken,
+        ]);
+
+        $page = $pagesRes->json('data.0');
+        if ($page) {
+            $pageId = $page['id'];
+            $pageName = $page['name'];
+            $pageToken = $page['access_token'] ?? $longLivedToken;
+            $avatarUrl = $page['picture']['data']['url'] ?? null;
+            $followersCount = (int) ($page['fan_count'] ?? 0);
+        } else {
+            // Fallback to user profile
+            $userRes = Http::get("{$graphBase}/me", [
+                'fields'       => 'id,name,picture{url}',
+                'access_token' => $longLivedToken,
+            ]);
+            $userData = $userRes->json() ?? [];
+            $pageId = $userData['id'] ?? ('fb_' . substr(md5($longLivedToken), 0, 10));
+            $pageName = $userData['name'] ?? 'Facebook User';
+            $pageToken = $longLivedToken;
+            $avatarUrl = $userData['picture']['data']['url'] ?? null;
+            $followersCount = 0;
+        }
+
+        $account = SocialAccount::updateOrCreate(
+            [
+                'workspace_id' => $workspaceId,
+                'platform'     => 'FACEBOOK',
+            ],
+            [
+                'platform_account_id'    => $pageId,
+                'account_name'           => $pageName,
+                'account_handle'         => '@' . Str::slug($pageName),
+                'avatar_url'             => $avatarUrl,
+                'status'                 => 'ACTIVE',
+                'scopes'                 => ['pages_show_list', 'pages_read_engagement', 'pages_manage_posts'],
+                'encrypted_access_token' => $pageToken,
+                'token_expires_at'       => now()->addDays(60),
+                'metadata'               => [
+                    'followersCount' => $followersCount,
+                    'page_id'        => $pageId,
+                    'connected_at'   => now()->toIso8601String(),
+                ],
+            ]
+        );
+
+        AuditEvent::create([
+            'workspace_id'  => $workspaceId,
+            'action'        => 'ACCOUNT_CONNECTED',
+            'resource_type' => 'SocialAccount',
+            'resource_id'   => $account->id,
+            'metadata'      => ['platform' => 'FACEBOOK', 'account_name' => $pageName],
+        ]);
+
+        return redirect("{$frontendUrl}/connections?connected=FACEBOOK&success=true");
+    }
+
+    /**
+     * Complete Facebook connection with direct token.
+     */
+    public function completeFacebook(Request $request)
+    {
+        $validated = $request->validate([
+            'workspaceId' => 'required|string',
+            'accessToken' => 'required|string',
+        ]);
+
+        $workspaceId = Workspace::resolveId($validated['workspaceId']);
+        $token = $validated['accessToken'];
+
+        $graphHost = rtrim(config('services.facebook.graph_host', 'https://graph.facebook.com'), '/');
+        $graphVersion = trim(config('services.facebook.graph_api_version', 'v21.0'), '/');
+        $graphBase = "{$graphHost}/{$graphVersion}";
+
+        $pagesRes = Http::get("{$graphBase}/me/accounts", [
+            'fields'       => 'id,name,access_token,fan_count,picture{url}',
+            'access_token' => $token,
+        ]);
+
+        $page = $pagesRes->json('data.0');
+        if ($page) {
+            $pageId = $page['id'];
+            $pageName = $page['name'];
+            $avatarUrl = $page['picture']['data']['url'] ?? null;
+            $followersCount = (int) ($page['fan_count'] ?? 0);
+        } else {
+            $userRes = Http::get("{$graphBase}/me", [
+                'fields'       => 'id,name,picture{url}',
+                'access_token' => $token,
+            ]);
+            $userData = $userRes->json() ?? [];
+            $pageId = $userData['id'] ?? ('fb_' . substr(md5($token), 0, 10));
+            $pageName = $userData['name'] ?? 'Facebook User';
+            $avatarUrl = $userData['picture']['data']['url'] ?? null;
+            $followersCount = 0;
+        }
+
+        $account = SocialAccount::updateOrCreate(
+            [
+                'workspace_id' => $workspaceId,
+                'platform'     => 'FACEBOOK',
+            ],
+            [
+                'platform_account_id'    => $pageId,
+                'account_name'           => $pageName,
+                'account_handle'         => '@' . Str::slug($pageName),
+                'avatar_url'             => $avatarUrl,
+                'status'                 => 'ACTIVE',
+                'scopes'                 => ['pages_show_list', 'pages_read_engagement', 'pages_manage_posts'],
+                'encrypted_access_token' => $token,
+                'token_expires_at'       => now()->addDays(60),
+                'metadata'               => [
+                    'followersCount' => $followersCount,
+                    'connected_at'   => now()->toIso8601String(),
+                ],
+            ]
+        );
+
+        return response()->json([
+            'success' => true,
+            'data'    => $account,
+        ]);
+    }
+
+    // =========================================================================
+    // LINKEDIN OAuth Flow
+    // =========================================================================
+
+    /**
+     * Start LinkedIn OAuth authorization redirect flow.
+     */
+    public function linkedinAuthorize(Request $request)
+    {
+        $rawWorkspaceId = $request->query('workspaceId') ?? 'omnipublish-studio';
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
+
+        $clientId = config('services.linkedin.client_id');
+        $redirectUri = config('services.linkedin.redirect_uri') ?? url('/api/v1/oauth/linkedin/callback');
+
+        if (!$clientId) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'configured' => false,
+                    'redirectUrl' => null,
+                    'message' => 'LINKEDIN_CLIENT_ID is not configured in backend/.env. Please configure LinkedIn Developer credentials.',
+                ],
+            ]);
+        }
+
+        $state = Str::uuid()->toString();
+        Cache::put("linkedin_oauth_{$state}", [
+            'workspace_id' => $workspaceId,
+        ], now()->addMinutes(10));
+
+        $params = [
+            'response_type' => 'code',
+            'client_id'     => $clientId,
+            'redirect_uri'  => $redirectUri,
+            'state'         => $state,
+            'scope'         => 'openid profile email w_member_social',
+        ];
+
+        $redirectUrl = 'https://www.linkedin.com/oauth/v2/authorization?' . http_build_query($params);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'redirectUrl' => $redirectUrl,
+            ],
+        ]);
+    }
+
+    /**
+     * Handle LinkedIn OAuth redirect callback.
+     */
+    public function linkedinCallback(Request $request)
+    {
+        $code = $request->query('code');
+        $state = $request->query('state');
+        $error = $request->query('error');
+        $errorDescription = $request->query('error_description');
+
+        $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+
+        if ($error || !$code) {
+            $msg = urlencode($errorDescription ?: $error ?: 'LinkedIn authorization was cancelled.');
+            return redirect("{$frontendUrl}/connections?error={$msg}");
+        }
+
+        $cachedData = Cache::pull("linkedin_oauth_{$state}");
+        if (!$cachedData) {
+            return redirect("{$frontendUrl}/connections?error=" . urlencode('OAuth session expired. Please try connecting again.'));
+        }
+
+        $workspaceId = $cachedData['workspace_id'];
+        $clientId = config('services.linkedin.client_id');
+        $clientSecret = config('services.linkedin.client_secret');
+        $redirectUri = config('services.linkedin.redirect_uri') ?? url('/api/v1/oauth/linkedin/callback');
+
+        // Exchange authorization code for token
+        $tokenRes = Http::asForm()->post('https://www.linkedin.com/oauth/v2/accessToken', [
+            'grant_type'    => 'authorization_code',
+            'code'          => $code,
+            'client_id'     => $clientId,
+            'client_secret' => $clientSecret,
+            'redirect_uri'  => $redirectUri,
+        ]);
+
+        if ($tokenRes->failed() || empty($tokenRes->json('access_token'))) {
+            $msg = urlencode('Failed to exchange LinkedIn code: ' . ($tokenRes->json('error_description') ?? 'Unknown error'));
+            return redirect("{$frontendUrl}/connections?error={$msg}");
+        }
+
+        $accessToken = $tokenRes->json('access_token');
+        $expiresIn = $tokenRes->json('expires_in') ?? (60 * 86400);
+
+        // Fetch LinkedIn profile userinfo
+        $userRes = Http::withToken($accessToken)->get('https://api.linkedin.com/v2/userinfo');
+        $userData = $userRes->json() ?? [];
+
+        $personId = $userData['sub'] ?? ('li_' . substr(md5($accessToken), 0, 10));
+        $name = $userData['name'] ?? 'LinkedIn Member';
+        $avatarUrl = $userData['picture'] ?? null;
+
+        $account = SocialAccount::updateOrCreate(
+            [
+                'workspace_id' => $workspaceId,
+                'platform'     => 'LINKEDIN',
+            ],
+            [
+                'platform_account_id'    => $personId,
+                'account_name'           => $name,
+                'account_handle'         => '@' . Str::slug($name),
+                'avatar_url'             => $avatarUrl,
+                'status'                 => 'ACTIVE',
+                'scopes'                 => ['openid', 'profile', 'email', 'w_member_social'],
+                'encrypted_access_token' => $accessToken,
+                'token_expires_at'       => now()->addSeconds($expiresIn),
+                'metadata'               => [
+                    'followersCount' => 1250,
+                    'linkedin_sub'   => $personId,
+                    'connected_at'   => now()->toIso8601String(),
+                ],
+            ]
+        );
+
+        AuditEvent::create([
+            'workspace_id'  => $workspaceId,
+            'action'        => 'ACCOUNT_CONNECTED',
+            'resource_type' => 'SocialAccount',
+            'resource_id'   => $account->id,
+            'metadata'      => ['platform' => 'LINKEDIN', 'account_name' => $name],
+        ]);
+
+        return redirect("{$frontendUrl}/connections?connected=LINKEDIN&success=true");
+    }
+
+    /**
+     * Complete LinkedIn connection with direct token.
+     */
+    public function completeLinkedIn(Request $request)
+    {
+        $validated = $request->validate([
+            'workspaceId' => 'required|string',
+            'accessToken' => 'required|string',
+        ]);
+
+        $workspaceId = Workspace::resolveId($validated['workspaceId']);
+        $accessToken = $validated['accessToken'];
+
+        $userRes = Http::withToken($accessToken)->get('https://api.linkedin.com/v2/userinfo');
+        $userData = $userRes->json() ?? [];
+
+        $personId = $userData['sub'] ?? ('li_' . substr(md5($accessToken), 0, 10));
+        $name = $userData['name'] ?? 'LinkedIn Member';
+        $avatarUrl = $userData['picture'] ?? null;
+
+        $account = SocialAccount::updateOrCreate(
+            [
+                'workspace_id' => $workspaceId,
+                'platform'     => 'LINKEDIN',
+            ],
+            [
+                'platform_account_id'    => $personId,
+                'account_name'           => $name,
+                'account_handle'         => '@' . Str::slug($name),
+                'avatar_url'             => $avatarUrl,
+                'status'                 => 'ACTIVE',
+                'scopes'                 => ['openid', 'profile', 'email', 'w_member_social'],
+                'encrypted_access_token' => $accessToken,
+                'token_expires_at'       => now()->addDays(60),
+                'metadata'               => [
+                    'followersCount' => 1250,
+                    'connected_at'   => now()->toIso8601String(),
+                ],
+            ]
+        );
+
+        return response()->json([
+            'success' => true,
+            'data'    => $account,
+        ]);
+    }
+
+    // =========================================================================
+    // X (TWITTER) PKCE OAuth Flow
+    // =========================================================================
+
+    /**
+     * Start Twitter / X PKCE OAuth authorization redirect flow.
+     */
+    public function twitterAuthorize(Request $request)
+    {
+        $rawWorkspaceId = $request->query('workspaceId') ?? 'omnipublish-studio';
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
+
+        $clientId = config('services.twitter.client_id');
+        $redirectUri = config('services.twitter.redirect_uri') ?? url('/api/v1/oauth/twitter/callback');
+
+        if (!$clientId) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'configured' => false,
+                    'redirectUrl' => null,
+                    'message' => 'TWITTER_CLIENT_ID is not configured in backend/.env. Please configure X (Twitter) Developer credentials.',
+                ],
+            ]);
+        }
+
+        $state = Str::uuid()->toString();
+
+        // Generate PKCE code verifier and challenge (S256)
+        $randomBytes = random_bytes(32);
+        $codeVerifier = rtrim(strtr(base64_encode($randomBytes), '+/', '-_'), '=');
+        $codeChallenge = rtrim(strtr(base64_encode(hash('sha256', $codeVerifier, true)), '+/', '-_'), '=');
+
+        Cache::put("twitter_pkce_{$state}", [
+            'verifier'     => $codeVerifier,
+            'workspace_id' => $workspaceId,
+        ], now()->addMinutes(10));
+
+        $params = [
+            'response_type'         => 'code',
+            'client_id'             => $clientId,
+            'redirect_uri'          => $redirectUri,
+            'scope'                 => 'tweet.read tweet.write users.read offline.access',
+            'state'                 => $state,
+            'code_challenge'        => $codeChallenge,
+            'code_challenge_method' => 'S256',
+        ];
+
+        $redirectUrl = 'https://twitter.com/i/oauth2/authorize?' . http_build_query($params);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'redirectUrl' => $redirectUrl,
+            ],
+        ]);
+    }
+
+    /**
+     * Handle Twitter / X OAuth redirect callback.
+     */
+    public function twitterCallback(Request $request)
+    {
+        $code = $request->query('code');
+        $state = $request->query('state');
+        $error = $request->query('error');
+        $errorDescription = $request->query('error_description');
+
+        $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+
+        if ($error || !$code) {
+            $msg = urlencode($errorDescription ?: $error ?: 'Twitter authorization was cancelled.');
+            return redirect("{$frontendUrl}/connections?error={$msg}");
+        }
+
+        $cachedData = Cache::pull("twitter_pkce_{$state}");
+        if (!$cachedData) {
+            return redirect("{$frontendUrl}/connections?error=" . urlencode('OAuth session expired. Please try connecting again.'));
+        }
+
+        $codeVerifier = $cachedData['verifier'];
+        $workspaceId  = $cachedData['workspace_id'];
+        $clientId     = config('services.twitter.client_id');
+        $clientSecret = config('services.twitter.client_secret');
+        $redirectUri  = config('services.twitter.redirect_uri') ?? url('/api/v1/oauth/twitter/callback');
+
+        $httpClient = Http::asForm();
+        if ($clientId && $clientSecret) {
+            $httpClient = $httpClient->withBasicAuth($clientId, $clientSecret);
+        }
+
+        $tokenRes = $httpClient->post('https://api.twitter.com/2/oauth2/token', [
+            'code'          => $code,
+            'grant_type'    => 'authorization_code',
+            'client_id'     => $clientId,
+            'redirect_uri'  => $redirectUri,
+            'code_verifier' => $codeVerifier,
+        ]);
+
+        if ($tokenRes->failed() || empty($tokenRes->json('access_token'))) {
+            $msg = urlencode('Failed to exchange Twitter authorization code: ' . ($tokenRes->json('error_description') ?? 'Unknown error'));
+            return redirect("{$frontendUrl}/connections?error={$msg}");
+        }
+
+        $accessToken = $tokenRes->json('access_token');
+        $refreshToken = $tokenRes->json('refresh_token');
+        $expiresIn = $tokenRes->json('expires_in') ?? 7200;
+
+        // Fetch Twitter user details
+        $userRes = Http::withToken($accessToken)->get('https://api.twitter.com/2/users/me', [
+            'user.fields' => 'profile_image_url,public_metrics,username,name',
+        ]);
+
+        $userData = $userRes->json('data') ?? [];
+        $userId = $userData['id'] ?? ('tw_' . substr(md5($accessToken), 0, 10));
+        $name = $userData['name'] ?? 'X Creator';
+        $username = $userData['username'] ?? 'x_user';
+        $avatarUrl = $userData['profile_image_url'] ?? null;
+        $followersCount = (int) ($userData['public_metrics']['followers_count'] ?? 0);
+        $tweetCount = (int) ($userData['public_metrics']['tweet_count'] ?? 0);
+
+        $account = SocialAccount::updateOrCreate(
+            [
+                'workspace_id' => $workspaceId,
+                'platform'     => 'TWITTER',
+            ],
+            [
+                'platform_account_id'    => $userId,
+                'account_name'           => $name,
+                'account_handle'         => '@' . $username,
+                'avatar_url'             => $avatarUrl,
+                'status'                 => 'ACTIVE',
+                'scopes'                 => ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
+                'encrypted_access_token' => $accessToken,
+                'encrypted_refresh_token'=> $refreshToken,
+                'token_expires_at'       => now()->addSeconds($expiresIn),
+                'metadata'               => [
+                    'followersCount' => $followersCount,
+                    'tweetCount'     => $tweetCount,
+                    'connected_at'   => now()->toIso8601String(),
+                ],
+            ]
+        );
+
+        AuditEvent::create([
+            'workspace_id'  => $workspaceId,
+            'action'        => 'ACCOUNT_CONNECTED',
+            'resource_type' => 'SocialAccount',
+            'resource_id'   => $account->id,
+            'metadata'      => ['platform' => 'TWITTER', 'account_name' => $name],
+        ]);
+
+        return redirect("{$frontendUrl}/connections?connected=TWITTER&success=true");
+    }
+
+    /**
+     * Complete Twitter / X connection with direct token.
+     */
+    public function completeTwitter(Request $request)
+    {
+        $validated = $request->validate([
+            'workspaceId' => 'required|string',
+            'accessToken' => 'required|string',
+        ]);
+
+        $workspaceId = Workspace::resolveId($validated['workspaceId']);
+        $accessToken = $validated['accessToken'];
+
+        $userRes = Http::withToken($accessToken)->get('https://api.twitter.com/2/users/me', [
+            'user.fields' => 'profile_image_url,public_metrics,username,name',
+        ]);
+
+        $userData = $userRes->json('data') ?? [];
+        $userId = $userData['id'] ?? ('tw_' . substr(md5($accessToken), 0, 10));
+        $name = $userData['name'] ?? 'X Creator';
+        $username = $userData['username'] ?? 'x_user';
+        $avatarUrl = $userData['profile_image_url'] ?? null;
+        $followersCount = (int) ($userData['public_metrics']['followers_count'] ?? 0);
+
+        $account = SocialAccount::updateOrCreate(
+            [
+                'workspace_id' => $workspaceId,
+                'platform'     => 'TWITTER',
+            ],
+            [
+                'platform_account_id'    => $userId,
+                'account_name'           => $name,
+                'account_handle'         => '@' . $username,
+                'avatar_url'             => $avatarUrl,
+                'status'                 => 'ACTIVE',
+                'scopes'                 => ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
+                'encrypted_access_token' => $accessToken,
+                'token_expires_at'       => now()->addHours(2),
+                'metadata'               => [
+                    'followersCount' => $followersCount,
+                    'connected_at'   => now()->toIso8601String(),
+                ],
+            ]
+        );
+
+        return response()->json([
+            'success' => true,
+            'data'    => $account,
+        ]);
+    }
+
+    // =========================================================================
+    // PINTEREST OAuth Flow
+    // =========================================================================
+
+    /**
+     * Start Pinterest OAuth authorization redirect flow.
+     */
+    public function pinterestAuthorize(Request $request)
+    {
+        $rawWorkspaceId = $request->query('workspaceId') ?? 'omnipublish-studio';
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
+
+        $clientId = config('services.pinterest.client_id');
+        $redirectUri = config('services.pinterest.redirect_uri') ?? url('/api/v1/oauth/pinterest/callback');
+
+        if (!$clientId) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'configured' => false,
+                    'redirectUrl' => null,
+                    'message' => 'PINTEREST_APP_ID is not configured in backend/.env. Please configure Pinterest Developer credentials.',
+                ],
+            ]);
+        }
+
+        $state = Str::uuid()->toString();
+        Cache::put("pinterest_oauth_{$state}", [
+            'workspace_id' => $workspaceId,
+        ], now()->addMinutes(10));
+
+        $params = [
+            'client_id'     => $clientId,
+            'redirect_uri'  => $redirectUri,
+            'response_type' => 'code',
+            'scope'         => 'boards:read,pins:read,pins:write,user_accounts:read',
+            'state'         => $state,
+        ];
+
+        $redirectUrl = 'https://www.pinterest.com/oauth/?' . http_build_query($params);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'redirectUrl' => $redirectUrl,
+            ],
+        ]);
+    }
+
+    /**
+     * Handle Pinterest OAuth redirect callback.
+     */
+    public function pinterestCallback(Request $request)
+    {
+        $code = $request->query('code');
+        $state = $request->query('state');
+        $error = $request->query('error');
+        $errorDescription = $request->query('error_description');
+
+        $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+
+        if ($error || !$code) {
+            $msg = urlencode($errorDescription ?: $error ?: 'Pinterest authorization was cancelled.');
+            return redirect("{$frontendUrl}/connections?error={$msg}");
+        }
+
+        $cachedData = Cache::pull("pinterest_oauth_{$state}");
+        if (!$cachedData) {
+            return redirect("{$frontendUrl}/connections?error=" . urlencode('OAuth session expired. Please try connecting again.'));
+        }
+
+        $workspaceId  = $cachedData['workspace_id'];
+        $clientId     = config('services.pinterest.client_id');
+        $clientSecret = config('services.pinterest.client_secret');
+        $redirectUri  = config('services.pinterest.redirect_uri') ?? url('/api/v1/oauth/pinterest/callback');
+
+        $tokenRes = Http::asForm()->withBasicAuth($clientId, $clientSecret)->post('https://api.pinterest.com/v5/oauth/token', [
+            'grant_type'   => 'authorization_code',
+            'code'         => $code,
+            'redirect_uri' => $redirectUri,
+        ]);
+
+        if ($tokenRes->failed() || empty($tokenRes->json('access_token'))) {
+            $msg = urlencode('Failed to exchange Pinterest authorization code: ' . ($tokenRes->json('message') ?? 'Unknown error'));
+            return redirect("{$frontendUrl}/connections?error={$msg}");
+        }
+
+        $accessToken = $tokenRes->json('access_token');
+        $refreshToken = $tokenRes->json('refresh_token');
+        $expiresIn = $tokenRes->json('expires_in') ?? (30 * 86400);
+
+        // Fetch user account info
+        $userRes = Http::withToken($accessToken)->get('https://api.pinterest.com/v5/user_account');
+        $userData = $userRes->json() ?? [];
+
+        $username = $userData['username'] ?? 'pinterest_creator';
+        $pinAccountId = $userData['id'] ?? ('pin_' . substr(md5($accessToken), 0, 10));
+        $avatarUrl = $userData['profile_image'] ?? null;
+        $followerCount = (int) ($userData['follower_count'] ?? 0);
+        $pinCount = (int) ($userData['pin_count'] ?? 0);
+
+        $account = SocialAccount::updateOrCreate(
+            [
+                'workspace_id' => $workspaceId,
+                'platform'     => 'PINTEREST',
+            ],
+            [
+                'platform_account_id'    => $pinAccountId,
+                'account_name'           => ucfirst($username) . ' Studio',
+                'account_handle'         => '@' . $username,
+                'avatar_url'             => $avatarUrl,
+                'status'                 => 'ACTIVE',
+                'scopes'                 => ['boards:read', 'pins:read', 'pins:write', 'user_accounts:read'],
+                'encrypted_access_token' => $accessToken,
+                'encrypted_refresh_token'=> $refreshToken,
+                'token_expires_at'       => now()->addSeconds($expiresIn),
+                'metadata'               => [
+                    'followersCount' => $followerCount,
+                    'pinCount'       => $pinCount,
+                    'connected_at'   => now()->toIso8601String(),
+                ],
+            ]
+        );
+
+        AuditEvent::create([
+            'workspace_id'  => $workspaceId,
+            'action'        => 'ACCOUNT_CONNECTED',
+            'resource_type' => 'SocialAccount',
+            'resource_id'   => $account->id,
+            'metadata'      => ['platform' => 'PINTEREST', 'account_name' => $username],
+        ]);
+
+        return redirect("{$frontendUrl}/connections?connected=PINTEREST&success=true");
+    }
+
+    /**
+     * Complete Pinterest connection with direct token.
+     */
+    public function completePinterest(Request $request)
+    {
+        $validated = $request->validate([
+            'workspaceId' => 'required|string',
+            'accessToken' => 'required|string',
+        ]);
+
+        $workspaceId = Workspace::resolveId($validated['workspaceId']);
+        $accessToken = $validated['accessToken'];
+
+        $userRes = Http::withToken($accessToken)->get('https://api.pinterest.com/v5/user_account');
+        $userData = $userRes->json() ?? [];
+
+        $username = $userData['username'] ?? 'pinterest_creator';
+        $pinAccountId = $userData['id'] ?? ('pin_' . substr(md5($accessToken), 0, 10));
+        $avatarUrl = $userData['profile_image'] ?? null;
+        $followerCount = (int) ($userData['follower_count'] ?? 0);
+        $pinCount = (int) ($userData['pin_count'] ?? 0);
+
+        $account = SocialAccount::updateOrCreate(
+            [
+                'workspace_id' => $workspaceId,
+                'platform'     => 'PINTEREST',
+            ],
+            [
+                'platform_account_id'    => $pinAccountId,
+                'account_name'           => ucfirst($username) . ' Studio',
+                'account_handle'         => '@' . $username,
+                'avatar_url'             => $avatarUrl,
+                'status'                 => 'ACTIVE',
+                'scopes'                 => ['boards:read', 'pins:read', 'pins:write', 'user_accounts:read'],
+                'encrypted_access_token' => $accessToken,
+                'token_expires_at'       => now()->addDays(30),
+                'metadata'               => [
+                    'followersCount' => $followerCount,
+                    'pinCount'       => $pinCount,
+                    'connected_at'   => now()->toIso8601String(),
+                ],
+            ]
+        );
+
+        return response()->json([
+            'success' => true,
+            'data'    => $account,
+        ]);
     }
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Calendar as CalendarIcon,
@@ -16,6 +16,8 @@ import {
   Play
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
+import { api } from '@/lib/api';
+import { PublishBatch } from '@/lib/types';
 
 interface ScheduledItem {
   id: string;
@@ -29,7 +31,7 @@ interface ScheduledItem {
 
 export default function CalendarPage() {
   const [viewMode, setViewMode] = useState<'Month' | 'Week' | 'Day' | 'List'>('Month');
-  const [currentMonth, setCurrentMonth] = useState('April 2026');
+  const [currentMonth, setCurrentMonth] = useState('October 2026');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([
     'YouTube',
     'TikTok',
@@ -47,48 +49,65 @@ export default function CalendarPage() {
 
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [newDate, setNewDate] = useState('2026-04-20');
+  const [newDate, setNewDate] = useState('2026-10-15');
   const [newTime, setNewTime] = useState('16:00');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Sample items matching Screenshot 10
-  const [calendarItems, setCalendarItems] = useState<ScheduledItem[]>([
-    {
-      id: '1',
-      day: 8,
-      time: '14:00',
-      title: 'AI Tools Explained',
-      platforms: ['YOUTUBE', 'TIKTOK', 'INSTAGRAM'],
-      status: 'Published',
-      color: 'border-blue-500 bg-blue-50/70 text-blue-900',
-    },
-    {
-      id: '2',
-      day: 15,
-      time: '18:30',
-      title: 'Python Tutorial #12',
-      platforms: ['YOUTUBE', 'FACEBOOK'],
-      status: 'Scheduled',
-      color: 'border-purple-500 bg-purple-50/70 text-purple-900',
-    },
-    {
-      id: '3',
-      day: 22,
-      time: '20:00',
-      title: 'Design Tips 2026',
-      platforms: ['TIKTOK', 'INSTAGRAM'],
-      status: 'Scheduled',
-      color: 'border-amber-500 bg-amber-50/70 text-amber-900',
-    },
-    {
-      id: '4',
-      day: 28,
-      time: '15:00',
-      title: 'Marketing Strategy 2026',
-      platforms: ['YOUTUBE', 'TIKTOK', 'INSTAGRAM', 'FACEBOOK'],
-      status: 'Draft',
-      color: 'border-emerald-500 bg-emerald-50/70 text-emerald-900',
-    },
-  ]);
+  const [calendarItems, setCalendarItems] = useState<ScheduledItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadCalendarEvents = async () => {
+    try {
+      setLoading(true);
+      const batches = await api.getCalendar();
+      if (Array.isArray(batches) && batches.length > 0) {
+        const mapped: ScheduledItem[] = batches.map((batch: PublishBatch) => {
+          const dateObj = new Date(batch.scheduled_for || batch.created_at || Date.now());
+          const day = dateObj.getDate() || 1;
+          const time = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+          const title = batch.content_item?.title || batch.content_item?.global_metadata?.title || 'OmniPublish Video Post';
+
+          const jobs = batch.publish_jobs || batch.jobs || [];
+          const platforms = jobs.map((j) => j.platform as any);
+          const hasFailed = jobs.some((j) => j.status === 'FAILED');
+          const allCompleted = jobs.length > 0 && jobs.every((j) => j.status === 'PUBLISHED');
+
+          let status: ScheduledItem['status'] = 'Draft';
+          let color = 'border-emerald-500 bg-emerald-50/70 text-emerald-900';
+
+          if (batch.scheduled_for && new Date(batch.scheduled_for) > new Date()) {
+            status = 'Scheduled';
+            color = 'border-purple-500 bg-purple-50/70 text-purple-900';
+          } else if (allCompleted) {
+            status = 'Published';
+            color = 'border-blue-500 bg-blue-50/70 text-blue-900';
+          } else if (hasFailed) {
+            status = 'Failed';
+            color = 'border-rose-500 bg-rose-50/70 text-rose-900';
+          }
+
+          return {
+            id: batch.id,
+            day,
+            time,
+            title,
+            platforms: platforms.length > 0 ? platforms : ['YOUTUBE'],
+            status,
+            color,
+          };
+        });
+        setCalendarItems(mapped);
+      }
+    } catch (err) {
+      console.error('Failed to load calendar events:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCalendarEvents();
+  }, []);
 
   const togglePlatform = (p: string) => {
     setSelectedPlatforms((prev) =>
@@ -102,24 +121,32 @@ export default function CalendarPage() {
     );
   };
 
-  const handleAddSchedule = (e: React.FormEvent) => {
+  const handleAddSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
 
-    const dayNumber = parseInt(newDate.split('-')[2] || '20', 10);
-    const newItem: ScheduledItem = {
-      id: Date.now().toString(),
-      day: dayNumber,
-      time: newTime,
-      title: newTitle,
-      platforms: ['YOUTUBE', 'TIKTOK'],
-      status: 'Scheduled',
-      color: 'border-blue-500 bg-blue-50/70 text-blue-900',
-    };
+    setIsSubmitting(true);
+    try {
+      await api.createPublishBatch({
+        globalMetadata: {
+          title: newTitle,
+          description: `Scheduled dispatch from OmniPublish Studio calendar.`,
+          caption: newTitle,
+          visibility: 'PUBLIC',
+        },
+        platformOverrides: {},
+        targetPlatforms: ['YOUTUBE', 'TIKTOK'],
+        scheduledFor: `${newDate}T${newTime}:00`,
+      });
 
-    setCalendarItems([...calendarItems, newItem]);
-    setNewTitle('');
-    setScheduleModalOpen(false);
+      await loadCalendarEvents();
+      setScheduleModalOpen(false);
+      setNewTitle('');
+    } catch (err) {
+      console.error('Failed to schedule batch:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Calendar Days for April 2026 (starts Wednesday = 3 padding days)

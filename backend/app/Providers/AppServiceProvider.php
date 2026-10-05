@@ -11,7 +11,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(
+            \App\Services\Contracts\MediaStorageInterface::class,
+            \App\Services\MediaStorageService::class
+        );
+        $this->app->singleton(
+            \App\Services\Contracts\FFmpegServiceInterface::class,
+            \App\Services\FFmpegService::class
+        );
     }
 
     /**

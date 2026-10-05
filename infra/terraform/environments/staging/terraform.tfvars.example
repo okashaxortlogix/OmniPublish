@@ -1,0 +1,16 @@
+# =========================================================================
+# OmniPublish Staging — Variable Values Example
+# Copy to terraform.tfvars and fill in secure values before deployment.
+# NEVER COMMIT terraform.tfvars TO GIT!
+# =========================================================================
+
+aws_region         = "us-east-1"
+environment        = "staging"
+vpc_cidr           = "10.1.0.0/16"
+availability_zones = ["us-east-1a", "us-east-1b"]
+
+# Provide secure generated passwords (minimum 16 chars)
+db_password      = "REPLACE_WITH_SECURE_STAGING_DB_PASSWORD"
+redis_auth_token = "REPLACE_WITH_SECURE_STAGING_REDIS_AUTH_TOKEN"
+
+image_tag = "staging-latest"

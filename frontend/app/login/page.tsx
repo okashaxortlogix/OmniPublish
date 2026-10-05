@@ -10,7 +10,7 @@ import {
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, setStoredAuthToken, setStoredWorkspaceId } from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -37,6 +37,16 @@ export default function LoginPage() {
       const data = await res.json();
       if (!res.ok || data.success === false) {
         throw new Error(data.message || 'Invalid email or password');
+      }
+
+      if (data.data?.token) {
+        setStoredAuthToken(data.data.token);
+      }
+      if (data.data?.currentWorkspace) {
+        setStoredWorkspaceId(data.data.currentWorkspace.slug || data.data.currentWorkspace.id);
+      }
+      if (data.data?.user) {
+        localStorage.setItem('omnipublish_user', JSON.stringify(data.data.user));
       }
 
       router.push('/dashboard');

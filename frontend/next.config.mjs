@@ -1,7 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
+  reactStrictMode: false, // Prevents duplicate renders and duplicate network calls in dev mode
+  compress: true,
+  poweredByHeader: false,
   images: {
+    formats: ['image/avif', 'image/webp'],
+    minimumCacheTTL: 604800,
     remotePatterns: [
       { protocol: 'https', hostname: '**' },
       { protocol: 'http', hostname: 'localhost' },
@@ -9,10 +13,11 @@ const nextConfig = {
     ],
   },
   async rewrites() {
+    const backendUrl = (process.env.INTERNAL_API_URL || 'http://127.0.0.1:8001').replace(/\/+$/, '');
     return [
       {
         source: '/api/v1/:path*',
-        destination: 'http://127.0.0.1:8000/api/v1/:path*',
+        destination: `${backendUrl}/api/v1/:path*`,
       },
     ];
   },

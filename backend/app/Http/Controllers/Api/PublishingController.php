@@ -66,9 +66,17 @@ class PublishingController extends Controller
         ], 201);
     }
 
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
-        $batch = PublishBatch::with(['publishJobs.socialAccount', 'contentItem.mediaAsset'])->findOrFail($id);
+        $rawWorkspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
+
+        $query = PublishBatch::with(['publishJobs.socialAccount', 'contentItem.mediaAsset']);
+        if ($workspaceId) {
+            $query->where('workspace_id', $workspaceId);
+        }
+
+        $batch = $query->findOrFail($id);
 
         return response()->json([
             'success' => true,
@@ -78,7 +86,15 @@ class PublishingController extends Controller
 
     public function retryJob(Request $request, string $jobId)
     {
-        $job = PublishJob::findOrFail($jobId);
+        $rawWorkspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
+
+        $jobQuery = PublishJob::query();
+        if ($workspaceId) {
+            $jobQuery->where('workspace_id', $workspaceId);
+        }
+
+        $job = $jobQuery->findOrFail($jobId);
 
         $retriedJob = $this->publishingService->retryJob(
             workspaceId: $job->workspace_id,
@@ -88,6 +104,70 @@ class PublishingController extends Controller
         return response()->json([
             'success' => true,
             'data' => $retriedJob,
+        ]);
+    }
+
+    public function showJob(Request $request, string $jobId)
+    {
+        $rawWorkspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
+
+        $jobQuery = PublishJob::with(['socialAccount', 'mediaAsset', 'attempts'])->latest();
+        if ($workspaceId) {
+            $jobQuery->where('workspace_id', $workspaceId);
+        }
+
+        $job = $jobQuery->findOrFail($jobId);
+
+        return response()->json([
+            'success' => true,
+            'data' => $job,
+        ]);
+    }
+
+    public function cancelJob(Request $request, string $jobId)
+    {
+        $rawWorkspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
+
+        $jobQuery = PublishJob::query();
+        if ($workspaceId) {
+            $jobQuery->where('workspace_id', $workspaceId);
+        }
+
+        $job = $jobQuery->findOrFail($jobId);
+
+        $cancelledJob = $this->publishingService->cancelJob(
+            workspaceId: $job->workspace_id,
+            jobId: $jobId
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => $cancelledJob,
+        ]);
+    }
+
+    public function reconcileJob(Request $request, string $jobId)
+    {
+        $rawWorkspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
+
+        $jobQuery = PublishJob::query();
+        if ($workspaceId) {
+            $jobQuery->where('workspace_id', $workspaceId);
+        }
+
+        $job = $jobQuery->findOrFail($jobId);
+
+        $reconciledJob = $this->publishingService->reconcileJob(
+            workspaceId: $job->workspace_id,
+            jobId: $jobId
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => $reconciledJob,
         ]);
     }
 
@@ -116,6 +196,26 @@ class PublishingController extends Controller
                 'isValid' => empty(array_filter($issues, fn($p) => !empty($p))),
                 'issues' => $issues,
             ]
+        ]);
+    }
+
+    public function destroy(Request $request, string $id)
+    {
+        $rawWorkspaceId = $request->header('X-Workspace-Id') ?? $request->query('workspace_id');
+        $workspaceId = Workspace::resolveId($rawWorkspaceId);
+
+        $query = PublishBatch::query();
+        if ($workspaceId) {
+            $query->where('workspace_id', $workspaceId);
+        }
+
+        $batch = $query->findOrFail($id);
+        $batch->publishJobs()->delete();
+        $batch->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Publish batch deleted successfully.',
         ]);
     }
 }

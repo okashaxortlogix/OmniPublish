@@ -56,14 +56,7 @@ export default function PublishingMonitorPage() {
       await loadBatches();
     } catch (e) {
       console.error('Retry error', e);
-      // Optimistically update
-      if (selectedBatch) {
-        const rawJobs = selectedBatch.jobs || selectedBatch.publish_jobs || [];
-        const updatedJobs = rawJobs.map((j) =>
-          j.id === jobId ? { ...j, status: 'PUBLISHED' as const, errorMessage: undefined } : j
-        );
-        setSelectedBatch({ ...selectedBatch, jobs: updatedJobs, publish_jobs: updatedJobs, status: 'PUBLISHED' });
-      }
+      await loadBatches();
     } finally {
       setRetryingJobId(null);
     }
@@ -151,8 +144,16 @@ export default function PublishingMonitorPage() {
                   <div className="space-y-2.5">
                     {currentJobs.map((job) => {
                       const isSuccess = job.status === 'PUBLISHED';
+                      const isUploading = job.status === 'UPLOADING';
+                      const isProcessing = job.status === 'PROCESSING';
+                      const isAuthRequired = job.status === 'AUTH_REQUIRED';
+                      const isRetrying = job.status === 'RETRYING';
                       const isFailed = job.status === 'FAILED';
-                      const isPending = job.status === 'QUEUED' || job.status === 'PUBLISHING';
+                      const isQueued = job.status === 'QUEUED' || job.status === 'CREATED';
+
+                      const uploadPercent = job.bytes_uploaded && job.total_bytes && job.total_bytes > 0
+                        ? Math.round((job.bytes_uploaded / job.total_bytes) * 100)
+                        : null;
 
                       return (
                         <div
@@ -182,16 +183,13 @@ export default function PublishingMonitorPage() {
                                   {job.platform}
                                 </span>
                                 <span className="text-[11px] text-slate-400">
-                                  {job.platform === 'YOUTUBE'
-                                    ? '@alexchannel'
-                                    : job.platform === 'TIKTOK'
-                                    ? '@tiktokcreator'
-                                    : '@john_official'}
+                                  {job.social_account?.account_handle ||
+                                   (job.platform === 'YOUTUBE' ? '@youtubechannel' : '@socialaccount')}
                                 </span>
                               </div>
 
                               <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
-                                <span>Attempts: {job.attemptCount || 1}</span>
+                                <span>Attempts: {job.attempts_count || job.attemptCount || 1}</span>
                                 {job.publishedAt && (
                                   <>
                                     <span>•</span>
@@ -207,22 +205,71 @@ export default function PublishingMonitorPage() {
                           {/* Status and Action Buttons */}
                           <div className="flex items-center gap-3">
                             {isSuccess && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                                Published
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  Published
+                                </span>
+                                {(job.remote_post_url || job.publishedUrl) && (
+                                  <a
+                                    href={job.remote_post_url || job.publishedUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 transition"
+                                  >
+                                    <span>Watch</span>
+                                    <ExternalLink className="h-3 w-3" />
+                                  </a>
+                                )}
+                              </div>
+                            )}
+
+                            {isUploading && (
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                                <Clock className="h-3.5 w-3.5 animate-spin" />
+                                <span>Uploading{uploadPercent !== null ? ` ${uploadPercent}%` : '...'}</span>
                               </span>
                             )}
 
-                            {isPending && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                            {isProcessing && (
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">
                                 <Clock className="h-3.5 w-3.5 animate-spin" />
-                                Processing
+                                <span>Processing...</span>
                               </span>
+                            )}
+
+                            {isRetrying && (
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                                <RotateCcw className="h-3.5 w-3.5 animate-spin" />
+                                <span>Retrying...</span>
+                              </span>
+                            )}
+
+                            {isQueued && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                                <Clock className="h-3.5 w-3.5" />
+                                Queued
+                              </span>
+                            )}
+
+                            {isAuthRequired && (
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                                  <AlertCircle className="h-3.5 w-3.5" />
+                                  Reconnect Required
+                                </span>
+                                <Link
+                                  href="/connections"
+                                  className="rounded-lg bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-amber-700 transition"
+                                >
+                                  Reconnect
+                                </Link>
+                              </div>
                             )}
 
                             {isFailed && (
                               <div className="flex items-center gap-2">
-                                <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700" title={job.user_facing_error_message || 'Publishing failed'}>
                                   <AlertCircle className="h-3.5 w-3.5" />
                                   Failed
                                 </span>
@@ -261,14 +308,20 @@ export default function PublishingMonitorPage() {
 
                 {/* Error Banner if any job failed */}
                 {failedJobs > 0 && (
-                  <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-xs text-red-800 space-y-1">
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-xs text-red-800 space-y-1.5">
                     <div className="flex items-center gap-1.5 font-bold">
                       <AlertCircle className="h-4 w-4 text-red-600" />
-                      <span>Destination Error Isolated</span>
+                      <span>Destination Error Isolated ({failedJobs} failed)</span>
                     </div>
-                    <p className="text-[11px] text-red-700">
-                      Instagram failed due to token refresh expiration. YouTube and TikTok were published successfully and will NOT be duplicated when retrying.
-                    </p>
+                    <div className="text-[11px] text-red-700 space-y-1">
+                      {currentJobs
+                        .filter((j) => j.status === 'FAILED')
+                        .map((j) => (
+                          <p key={j.id}>
+                            • <strong className="font-semibold">{j.platform}</strong>: {j.user_facing_error_message || 'Publishing error. Other destinations were completed safely and will not be duplicated.'}
+                          </p>
+                        ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -293,53 +346,48 @@ export default function PublishingMonitorPage() {
           <div className="lg:col-span-4 space-y-4">
             <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 className="text-sm font-semibold text-slate-900">Recent Jobs</h3>
-                <span className="text-xs text-slate-400">All Batches</span>
+                <h3 className="text-sm font-semibold text-slate-900">Recent Batches</h3>
+                <span className="text-xs text-slate-400">{batches.length} total</span>
               </div>
 
               <div className="space-y-3">
-                {[
-                  {
-                    title: 'AI Tools Explained',
-                    date: 'Apr 28, 2026',
-                    status: 'Published',
-                    statusBg: 'bg-emerald-50 text-emerald-700',
-                  },
-                  {
-                    title: 'Python Tutorial #12',
-                    date: 'Apr 27, 2026',
-                    status: 'Published',
-                    statusBg: 'bg-emerald-50 text-emerald-700',
-                  },
-                  {
-                    title: 'Design Tips 2026',
-                    date: 'Apr 26, 2026',
-                    status: 'Published',
-                    statusBg: 'bg-emerald-50 text-emerald-700',
-                  },
-                  {
-                    title: 'Marketing Strategy',
-                    date: 'Apr 25, 2026',
-                    status: 'Published',
-                    statusBg: 'bg-emerald-50 text-emerald-700',
-                  },
-                ].map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between rounded-lg border border-slate-100 p-2.5 hover:bg-slate-50 transition-colors cursor-pointer"
-                  >
-                    <div>
-                      <h4 className="text-xs font-semibold text-slate-900">{item.title}</h4>
-                      <p className="text-[10px] text-slate-400">{item.date}</p>
-                    </div>
+                {batches.length > 0 ? (
+                  batches.slice(0, 6).map((b) => {
+                    const jobs = b.jobs || b.publish_jobs || [];
+                    const allOk = jobs.length > 0 && jobs.every((j) => j.status === 'PUBLISHED');
+                    const anyFailed = jobs.some((j) => j.status === 'FAILED');
+                    const bTitle = b.content_item?.title || b.content_item?.global_metadata?.title || 'Video Post';
+                    const bDate = b.created_at ? new Date(b.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recently';
 
-                    <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${item.statusBg}`}
-                    >
-                      {item.status}
-                    </span>
-                  </div>
-                ))}
+                    return (
+                      <div
+                        key={b.id}
+                        onClick={() => setSelectedBatch(b)}
+                        className={`flex items-center justify-between rounded-lg border p-2.5 transition-colors cursor-pointer ${
+                          selectedBatch?.id === b.id ? 'border-blue-500 bg-blue-50/50 ring-1 ring-blue-500' : 'border-slate-100 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="truncate pr-2">
+                          <h4 className="text-xs font-semibold text-slate-900 truncate">{bTitle}</h4>
+                          <p className="text-[10px] text-slate-400">{bDate} • {jobs.length} destinations</p>
+                        </div>
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold shrink-0 ${
+                            allOk
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : anyFailed
+                              ? 'bg-red-50 text-red-700'
+                              : 'bg-blue-50 text-blue-700'
+                          }`}
+                        >
+                          {allOk ? 'Published' : anyFailed ? 'Failed' : 'Processing'}
+                        </span>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-xs text-slate-400 text-center py-4">No batches dispatched yet</p>
+                )}
               </div>
             </div>
           </div>

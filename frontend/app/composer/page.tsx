@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import {
   Film,
   Sparkles,
@@ -16,16 +16,13 @@ import {
   Send,
   Eye,
   Hash,
-  Tag,
-  ChevronDown,
-  Info,
+  X,
+  Clock,
   ArrowRight,
   ArrowLeft,
-  X,
-  Layers,
-  Clock,
-  ShieldCheck,
-  Check
+  Check,
+  SlidersHorizontal,
+  ChevronRight
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { api } from '@/lib/api';
@@ -45,8 +42,8 @@ export default function ComposerPage() {
   const router = useRouter();
 
   // Active step in composer
-  // 1: Upload (done), 2: Details, 3: Platforms, 4: Review
-  const [currentStep, setCurrentStep] = useState<number>(2);
+  // 1: Details & Platforms, 2: Review & Schedule
+  const [currentStep, setCurrentStep] = useState<number>(1);
 
   // Global Content Metadata
   const [title, setTitle] = useState('How We Scaled OmniPublish from 0 to 10k Users');
@@ -59,17 +56,22 @@ export default function ComposerPage() {
   const [hashtagInput, setHashtagInput] = useState('');
   const [callToAction, setCallToAction] = useState('Visit omnipublish.io to try it free!');
 
+  // Schedule Options
+  const [publishMode, setPublishMode] = useState<'instant' | 'scheduled'>('instant');
+  const [scheduledDate, setScheduledDate] = useState('2026-10-06');
+  const [scheduledTime, setScheduledTime] = useState('14:00');
+
   // Platforms State
   const [platforms, setPlatforms] = useState<PlatformSetting[]>([
-    { id: 'YOUTUBE', name: 'YouTube', badgeBg: 'bg-red-600', badgeText: 'YT', account: '@alexchannel', connected: true, enabled: true },
-    { id: 'TIKTOK', name: 'TikTok', badgeBg: 'bg-black', badgeText: 'TT', account: '@tiktokcreator', connected: true, enabled: true },
-    { id: 'INSTAGRAM', name: 'Instagram', badgeBg: 'bg-pink-600', badgeText: 'IG', account: '@john_official', connected: true, enabled: true },
-    { id: 'FACEBOOK', name: 'Facebook', badgeBg: 'bg-blue-600', badgeText: 'FB', account: '@omnipublishpage', connected: true, enabled: false },
-    { id: 'LINKEDIN', name: 'LinkedIn', badgeBg: 'bg-sky-700', badgeText: 'LI', account: 'OmniPublish Media', connected: true, enabled: false },
-    { id: 'X', name: 'X (Twitter)', badgeBg: 'bg-slate-900', badgeText: 'X', account: '@omnipublish_app', connected: true, enabled: false },
+    { id: 'YOUTUBE', name: 'YouTube', badgeBg: 'bg-red-600', badgeText: 'YT', account: '@alexvance_tech', connected: true, enabled: true },
+    { id: 'TIKTOK', name: 'TikTok', badgeBg: 'bg-black', badgeText: 'TT', account: '@alexv_codes', connected: true, enabled: true },
+    { id: 'LINKEDIN', name: 'LinkedIn', badgeBg: 'bg-[#0A66C2]', badgeText: 'LI', account: '@omnipublish_linkedin', connected: true, enabled: true },
+    { id: 'INSTAGRAM', name: 'Instagram', badgeBg: 'bg-gradient-to-tr from-amber-500 via-pink-600 to-purple-600', badgeText: 'IG', account: '@alexvance.studio', connected: true, enabled: false },
+    { id: 'FACEBOOK', name: 'Facebook', badgeBg: 'bg-[#1877F2]', badgeText: 'FB', account: '@omnipublishpage', connected: true, enabled: false },
+    { id: 'X', name: 'X (Twitter)', badgeBg: 'bg-black', badgeText: 'X', account: '@omnipublish_app', connected: true, enabled: false },
   ]);
 
-  // Platform Customization Overrides (Verified capabilities)
+  // Platform Customization Overrides
   const [activeCustomizePlatform, setActiveCustomizePlatform] = useState<SupportedPlatform | null>(null);
 
   // YouTube Overrides
@@ -78,8 +80,6 @@ export default function ComposerPage() {
   const [ytCategory, setYtCategory] = useState('28'); // Science & Tech
   const [ytVisibility, setYtVisibility] = useState<'public' | 'unlisted' | 'private'>('public');
   const [ytMadeForKids, setYtMadeForKids] = useState(false);
-  const [ytSchedule, setYtSchedule] = useState(false);
-  const [ytScheduleTime, setYtScheduleTime] = useState('2026-10-05T15:00');
 
   // TikTok Overrides
   const [ttCaption, setTtCaption] = useState('');
@@ -87,47 +87,49 @@ export default function ComposerPage() {
   const [ttAllowComments, setTtAllowComments] = useState(true);
   const [ttAllowDuet, setTtAllowDuet] = useState(true);
   const [ttAllowStitch, setTtAllowStitch] = useState(true);
-  const [ttCommercial, setTtCommercial] = useState(false);
 
   // Instagram Overrides
   const [igCaption, setIgCaption] = useState('');
   const [igShareToFeed, setIgShareToFeed] = useState(true);
-  const [igAudioName, setIgAudioName] = useState('Original Audio — OmniPublish');
 
   // Submission / Review State
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [publishSuccess, setPublishSuccess] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
 
-  // Load any seed from Upload page or AI assistant
+  // Fetch real accounts on mount
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const seed = sessionStorage.getItem('composer_seed');
-      if (seed) {
-        try {
-          const parsed = JSON.parse(seed);
-          if (parsed.title) setTitle(parsed.title);
-          if (parsed.description) setDescription(parsed.description);
-          if (parsed.tags) setTags(parsed.tags);
-          if (parsed.hashtags) setHashtags(parsed.hashtags);
-        } catch (e) {
-          // ignore
+    async function loadRealAccounts() {
+      try {
+        const res = await api.getSocialAccounts();
+        if (res && res.accounts && res.accounts.length > 0) {
+          const updated = platforms.map((p) => {
+            const matched = res.accounts.find(
+              (a: any) =>
+                a.platform.toUpperCase() === p.id.toUpperCase() ||
+                (p.id === 'X' && a.platform.toUpperCase() === 'TWITTER')
+            );
+            if (matched) {
+              return {
+                ...p,
+                account: matched.account_handle || matched.account_name,
+                connected: matched.status === 'ACTIVE' || matched.status === 'EXPIRED',
+              };
+            }
+            return p;
+          });
+          setPlatforms(updated);
         }
+      } catch (e) {
+        console.warn('Could not load dynamic accounts for composer', e);
       }
     }
+    loadRealAccounts();
   }, []);
 
   const togglePlatform = (id: SupportedPlatform) => {
     setPlatforms((prev) =>
       prev.map((p) => (p.id === id ? { ...p, enabled: !p.enabled } : p))
     );
-  };
-
-  const handleAddTag = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && tagInput.trim()) {
-      e.preventDefault();
-      if (!tags.includes(tagInput.trim())) setTags([...tags, tagInput.trim()]);
-      setTagInput('');
-    }
   };
 
   const handleAddHashtag = (e: React.KeyboardEvent) => {
@@ -139,12 +141,38 @@ export default function ComposerPage() {
     }
   };
 
+  const removeHashtag = (tagToRemove: string) => {
+    setHashtags(hashtags.filter((h) => h !== tagToRemove));
+  };
+
+  const generateWithAi = () => {
+    setAiGenerating(true);
+    setTimeout(() => {
+      setTitle('How We Scaled Our Social Video Infrastructure to 10M Views');
+      setDescription(
+        'Here is the exact architecture breakdown of our multi-platform video pipeline: asynchronous queue workers, chunked resumable streaming, and automated token vaults.'
+      );
+      setHashtags(['#omnipublish', '#softwareengineering', '#buildinpublic', '#scale', '#viral']);
+      setAiGenerating(false);
+    }, 600);
+  };
+
   const selectedEnabledPlatforms = platforms.filter((p) => p.enabled);
 
   const handlePublishNow = async () => {
+    if (selectedEnabledPlatforms.length === 0) {
+      alert('Please select at least one destination channel.');
+      return;
+    }
     setIsSubmitting(true);
     try {
+      const scheduledAtIso =
+        publishMode === 'scheduled' && scheduledDate && scheduledTime
+          ? new Date(`${scheduledDate}T${scheduledTime}:00`).toISOString()
+          : undefined;
+
       await api.createPublishBatch({
+        scheduled_at: scheduledAtIso,
         globalMetadata: {
           title,
           description,
@@ -176,196 +204,170 @@ export default function ComposerPage() {
         targetPlatforms: selectedEnabledPlatforms.map((p) => p.id),
       });
 
-      setPublishSuccess(true);
-      setTimeout(() => {
-        router.push('/publishing');
-      }, 1000);
-    } catch (e) {
-      console.error(e);
-      // Fallback redirect to monitor
       router.push('/publishing');
+    } catch (e: any) {
+      console.error(e);
+      alert('Publish dispatch notice: ' + (e?.message || 'Check connections'));
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <AppShell pageTitle="Universal Content Composer">
-      <div className="max-w-6xl mx-auto space-y-6">
-        {/* Stepper matching Screenshot 7 */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between max-w-2xl mx-auto">
-            {[
-              { num: 1, label: 'Upload', route: '/upload' },
-              { num: 2, label: 'Details', step: 2 },
-              { num: 3, label: 'Platforms', step: 3 },
-              { num: 4, label: 'Review', step: 4 },
-            ].map((s, idx) => {
-              const isPast = currentStep > s.num || s.num === 1;
-              const isCurrent = currentStep === s.num && s.num !== 1;
-              return (
-                <React.Fragment key={s.num}>
-                  <div
-                    onClick={() => {
-                      if (s.route) router.push(s.route);
-                      else if (s.step) setCurrentStep(s.step);
-                    }}
-                    className="flex items-center gap-2 cursor-pointer group"
-                  >
-                    <div
-                      className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition-colors ${
-                        isCurrent
-                          ? 'bg-blue-600 text-white ring-4 ring-blue-50'
-                          : isPast
-                          ? 'bg-emerald-500 text-white'
-                          : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
-                      }`}
-                    >
-                      {isPast ? <Check className="h-4 w-4" /> : s.num}
-                    </div>
-                    <span
-                      className={`text-xs font-medium ${
-                        isCurrent ? 'text-blue-600 font-semibold' : 'text-slate-600'
-                      }`}
-                    >
-                      {s.label}
-                    </span>
-                  </div>
-                  {idx < 3 && (
-                    <div
-                      className={`flex-1 h-0.5 mx-3 ${
-                        currentStep > idx + 1 ? 'bg-emerald-400' : 'bg-slate-200'
-                      }`}
-                    />
-                  )}
-                </React.Fragment>
-              );
-            })}
+    <AppShell pageTitle="New Publication">
+      <div className="max-w-6xl mx-auto space-y-6 pb-16">
+        {/* Step Indicator Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">
+              {currentStep === 1 ? 'Compose Publication' : 'Review & Schedule'}
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {currentStep === 1
+                ? 'Craft unified video content and select your broadcasting channels.'
+                : 'Confirm destination channel compliance and delivery schedule.'}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 border border-slate-200/70 text-xs">
+            <button
+              onClick={() => setCurrentStep(1)}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                currentStep === 1
+                  ? 'bg-white text-slate-900 shadow-2xs'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              1. Content &amp; Channels
+            </button>
+            <ChevronRight className="h-3 w-3 text-slate-400" />
+            <button
+              onClick={() => setCurrentStep(2)}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                currentStep === 2
+                  ? 'bg-white text-slate-900 shadow-2xs'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              2. Review &amp; Schedule
+            </button>
           </div>
         </div>
 
-        {/* STEP 2 & 3: DETAILS & PLATFORMS VIEW (Screenshot 7) */}
-        {currentStep <= 3 && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Column: Video Preview & Thumbnail (3 cols) */}
-            <div className="lg:col-span-4 space-y-4">
-              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-semibold text-slate-800 uppercase tracking-wider">
-                    Video Preview
-                  </h3>
-                  <span className="text-[11px] font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
-                    01:45
-                  </span>
-                </div>
+        {/* STEP 1: CONTENT & CHANNELS */}
+        {currentStep === 1 && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Left Column: Media + Content Inputs (7 cols) */}
+            <div className="lg:col-span-7 space-y-5">
+              {/* Media Card */}
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  <div className="relative aspect-video w-full sm:w-48 rounded-xl overflow-hidden bg-slate-900 shrink-0 group shadow-2xs">
+                    <img
+                      src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600"
+                      alt="Composer video preview"
+                      className="w-full h-full object-cover opacity-90"
+                    />
+                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                      <div className="h-8 w-8 rounded-full bg-white/90 text-slate-900 flex items-center justify-center shadow-xs">
+                        <Play className="h-4 w-4 fill-slate-900 ml-0.5" />
+                      </div>
+                    </div>
+                    <span className="absolute bottom-1.5 right-1.5 text-[10px] font-mono bg-black/60 text-white px-1.5 py-0.5 rounded backdrop-blur-xs">
+                      01:45
+                    </span>
+                  </div>
 
-                <div className="relative aspect-video rounded-lg overflow-hidden bg-slate-900 group shadow-inner">
-                  <img
-                    src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600"
-                    alt="Composer video preview"
-                    className="w-full h-full object-cover opacity-85"
-                  />
-                  <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                    <div className="h-10 w-10 rounded-full bg-white/90 text-slate-900 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
-                      <Play className="h-5 w-5 fill-slate-900 ml-0.5" />
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Attached Media</span>
+                      <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        Ready (1080p MP4)
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-slate-800 truncate">ai_developer_agent_demo.mp4</p>
+                    <p className="text-[11px] text-slate-400">45.2 MB • H.264 / AAC • 9:16 Aspect Ratio</p>
+                    <div className="pt-1 flex items-center gap-3">
+                      <Link
+                        href="/upload"
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 transition-colors"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        <span>Replace</span>
+                      </Link>
                     </div>
                   </div>
                 </div>
+              </div>
 
-                <div className="flex items-center justify-between pt-1">
-                  <Link
-                    href="/upload"
-                    className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-blue-600 font-medium"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    <span>Replace Media</span>
-                  </Link>
-
+              {/* Main Metadata Card */}
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Content Metadata</h3>
+                    <p className="text-xs text-slate-500">Universal text deployed across all selected channels</p>
+                  </div>
                   <button
                     type="button"
-                    className="text-xs text-blue-600 hover:underline font-medium"
+                    onClick={generateWithAi}
+                    disabled={aiGenerating}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors p-1"
+                    title="Generate viral title and tags"
                   >
-                    Edit Thumbnail
+                    <Sparkles className={`h-3.5 w-3.5 ${aiGenerating ? 'animate-spin' : ''}`} />
+                    <span>{aiGenerating ? 'Optimizing...' : 'AI Assist'}</span>
                   </button>
-                </div>
-              </div>
-
-              {/* AI Assistant Quick Generator Banner */}
-              <div className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50/50 p-4 shadow-sm space-y-2">
-                <div className="flex items-center gap-2 text-blue-700">
-                  <Sparkles className="h-4 w-4" />
-                  <span className="text-xs font-bold">AI Copywriter Ready</span>
-                </div>
-                <p className="text-[11px] text-slate-600">
-                  Need viral title or platform-tailored hashtags? Generate with 1 click.
-                </p>
-                <Link
-                  href="/ai"
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline pt-1"
-                >
-                  <span>Open AI Assistant</span>
-                  <ArrowRight className="h-3 w-3" />
-                </Link>
-              </div>
-            </div>
-
-            {/* Middle Column: Global Content Metadata (5 cols) */}
-            <div className="lg:col-span-5 space-y-4">
-              <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <h3 className="text-sm font-semibold text-slate-900">Global Content</h3>
-                  <span className="text-xs text-slate-400">Default for all channels</span>
                 </div>
 
                 {/* Title */}
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs font-semibold text-slate-700">
                     <label>Title</label>
-                    <span className="text-slate-400 font-normal">{title.length}/100</span>
+                    <span className="text-[11px] text-slate-400 font-normal">{title.length} / 100</span>
                   </div>
                   <input
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     maxLength={100}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
-                    placeholder="Enter post title..."
+                    placeholder="Write an engaging video title..."
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-slate-400 shadow-2xs"
                   />
                 </div>
 
                 {/* Description */}
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
-                    <label>Description</label>
-                    <span className="text-slate-400 font-normal">{description.length}/2200</span>
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs font-semibold text-slate-700">
+                    <label>Description &amp; Caption</label>
+                    <span className="text-[11px] text-slate-400 font-normal">{description.length} / 2200</span>
                   </div>
                   <textarea
                     rows={4}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     maxLength={2200}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
-                    placeholder="Enter global description..."
+                    placeholder="Enter full video description or caption..."
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-slate-400 shadow-2xs leading-relaxed"
                   />
                 </div>
 
-                {/* Hashtags */}
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
+                {/* Hashtags Input & Pills */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs font-semibold text-slate-700">
                     <label>Hashtags</label>
-                    <span className="text-slate-400 font-normal">{hashtags.length} added</span>
+                    <span className="text-[11px] text-slate-400 font-normal">{hashtags.length} added</span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-300 bg-white p-2">
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-2 shadow-2xs min-h-[42px]">
                     {hashtags.map((h) => (
                       <span
                         key={h}
-                        className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700 font-medium"
+                        className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1 text-xs text-slate-700 font-medium"
                       >
                         {h}
                         <button
                           type="button"
-                          onClick={() => setHashtags(hashtags.filter((x) => x !== h))}
-                          className="text-blue-400 hover:text-blue-600"
+                          onClick={() => removeHashtag(h)}
+                          className="text-slate-400 hover:text-slate-700 ml-0.5"
                         >
                           <X className="h-3 w-3" />
                         </button>
@@ -376,474 +378,329 @@ export default function ComposerPage() {
                       value={hashtagInput}
                       onChange={(e) => setHashtagInput(e.target.value)}
                       onKeyDown={handleAddHashtag}
-                      placeholder="#hashtag (Enter)"
-                      className="flex-1 min-w-[90px] bg-transparent text-xs text-slate-900 focus:outline-none"
+                      placeholder="#add_tag (Enter)"
+                      className="flex-1 min-w-[120px] bg-transparent text-xs text-slate-800 placeholder-slate-400 focus:outline-none px-1 py-0.5"
                     />
                   </div>
                 </div>
 
                 {/* Call to Action */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Call to Action Link / Caption Note
-                  </label>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-700">Call to Action Link / Caption Note</label>
                   <input
                     type="text"
                     value={callToAction}
                     onChange={(e) => setCallToAction(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-slate-400 shadow-2xs"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Right Column: Platform Selection (3 cols) */}
-            <div className="lg:col-span-3 space-y-4">
-              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <h3 className="text-sm font-semibold text-slate-900">Platforms</h3>
-                  <span className="text-xs text-blue-600 font-semibold">
-                    {selectedEnabledPlatforms.length} selected
+            {/* Right Column: Channels & Scheduling (5 cols) */}
+            <div className="lg:col-span-5 space-y-5">
+              {/* Channel Selector Card */}
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Destination Channels</h3>
+                    <p className="text-xs text-slate-500">Select where this video will publish</p>
+                  </div>
+                  <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                    {selectedEnabledPlatforms.length} of {platforms.length}
                   </span>
                 </div>
 
+                {/* Platforms List */}
                 <div className="space-y-2">
                   {platforms.map((p) => (
                     <div
                       key={p.id}
-                      className={`flex items-center justify-between rounded-lg border p-2.5 transition-colors ${
+                      onClick={() => togglePlatform(p.id)}
+                      className={`flex items-center justify-between rounded-xl border p-3 cursor-pointer transition-all ${
                         p.enabled
-                          ? 'border-blue-200 bg-blue-50/30'
-                          : 'border-slate-200 bg-slate-50/50 opacity-75'
+                          ? 'border-slate-900 bg-slate-50/70 shadow-2xs'
+                          : 'border-slate-200/70 bg-white hover:bg-slate-50/50'
                       }`}
                     >
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div
-                          className={`flex h-7 w-7 items-center justify-center rounded text-white text-[11px] font-bold ${p.badgeBg}`}
+                          className={`flex h-8 w-8 items-center justify-center rounded-xl text-white text-xs font-bold shrink-0 ${p.badgeBg}`}
                         >
                           {p.badgeText}
                         </div>
-                        <div>
-                          <p className="text-xs font-semibold text-slate-900">{p.name}</p>
-                          <p className="text-[10px] text-slate-500">{p.account}</p>
+                        <div className="truncate">
+                          <p className="text-xs font-bold text-slate-900 truncate">{p.name}</p>
+                          <p className="text-[11px] text-slate-500 truncate">{p.account}</p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                         {p.enabled && (
                           <button
                             type="button"
                             onClick={() => setActiveCustomizePlatform(p.id)}
-                            className="text-[11px] font-semibold text-blue-600 hover:underline"
+                            className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 px-2 py-1 rounded-lg hover:bg-slate-200/60 transition-colors"
                           >
-                            Customize →
+                            Customize
                           </button>
                         )}
                         <input
                           type="checkbox"
                           checked={p.enabled}
                           onChange={() => togglePlatform(p.id)}
-                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900 cursor-pointer"
                         />
                       </div>
                     </div>
                   ))}
                 </div>
+              </div>
 
-                <div className="pt-2">
+              {/* Delivery Timing Card */}
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Release Timing</h3>
+
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setCurrentStep(4)}
-                    className="w-full flex items-center justify-center gap-2 rounded-lg bg-blue-600 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
+                    onClick={() => setPublishMode('instant')}
+                    className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all ${
+                      publishMode === 'instant'
+                        ? 'border-slate-900 bg-slate-900 text-white shadow-2xs'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
                   >
-                    <span>Next, Review</span>
-                    <ArrowRight className="h-4 w-4" />
+                    Publish Now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPublishMode('scheduled')}
+                    className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all ${
+                      publishMode === 'scheduled'
+                        ? 'border-slate-900 bg-slate-900 text-white shadow-2xs'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    Schedule Date
                   </button>
                 </div>
+
+                {publishMode === 'scheduled' && (
+                  <div className="pt-2 grid grid-cols-2 gap-2 animate-fadeIn">
+                    <input
+                      type="date"
+                      value={scheduledDate}
+                      onChange={(e) => setScheduledDate(e.target.value)}
+                      className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs text-slate-800 bg-white focus:outline-none focus:border-slate-400"
+                    />
+                    <input
+                      type="time"
+                      value={scheduledTime}
+                      onChange={(e) => setScheduledTime(e.target.value)}
+                      className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs text-slate-800 bg-white focus:outline-none focus:border-slate-400"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Primary Next Button */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep(2)}
+                  disabled={selectedEnabledPlatforms.length === 0}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white py-3 text-xs font-semibold shadow-2xs hover:shadow transition-all disabled:opacity-50 active:scale-98"
+                >
+                  <span>Continue to Review ({selectedEnabledPlatforms.length} channels)</span>
+                  <ArrowRight className="h-4 w-4 text-indigo-400" />
+                </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* STEP 4: REVIEW & PUBLISH VIEW (Screenshot 8/9 & Section 8) */}
-        {currentStep === 4 && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">Review &amp; Publish</h2>
-                <p className="text-xs text-slate-500">
-                  Verify destination readiness before firing independent publishing workers.
-                </p>
+        {/* STEP 2: REVIEW & SCHEDULE VIEW */}
+        {currentStep === 2 && (
+          <div className="max-w-4xl mx-auto space-y-6">
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-2xs space-y-6">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">Publication Summary</h2>
+                  <p className="text-xs text-slate-500">Confirm payload details before dispatches are queued</p>
+                </div>
+                <button
+                  onClick={() => setCurrentStep(1)}
+                  className="text-xs font-semibold text-indigo-600 hover:underline"
+                >
+                  Edit Content
+                </button>
               </div>
 
-              <div className="flex items-center gap-3">
+              {/* Post Preview Info */}
+              <div className="space-y-3 text-xs">
+                <div>
+                  <span className="text-slate-400 font-medium">Title:</span>
+                  <p className="font-bold text-slate-900 text-sm mt-0.5">{title}</p>
+                </div>
+                <div>
+                  <span className="text-slate-400 font-medium">Description:</span>
+                  <p className="text-slate-700 leading-relaxed mt-0.5">{description}</p>
+                </div>
+                <div>
+                  <span className="text-slate-400 font-medium">Hashtags:</span>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {hashtags.map((h) => (
+                      <span key={h} className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-mono text-slate-700">
+                        {h}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Selected Destination Readiness */}
+              <div className="space-y-3 pt-3 border-t border-slate-100">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Target Channels Readiness</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {selectedEnabledPlatforms.map((p) => (
+                    <div key={p.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`h-7 w-7 rounded-lg text-white font-bold text-xs flex items-center justify-center ${p.badgeBg}`}>
+                          {p.badgeText}
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">{p.name}</p>
+                          <p className="text-[10px] text-slate-500">{p.account}</p>
+                        </div>
+                      </div>
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Ready
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Actions Footer */}
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={() => setCurrentStep(2)}
-                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  onClick={() => setCurrentStep(1)}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900"
                 >
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                  <span>Back to Edit</span>
+                  <ArrowLeft className="h-4 w-4" />
+                  <span>Back to Details</span>
                 </button>
+
                 <button
                   type="button"
                   onClick={handlePublishNow}
                   disabled={isSubmitting || selectedEnabledPlatforms.length === 0}
-                  className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 text-xs font-semibold shadow-2xs hover:shadow active:scale-95 transition-all disabled:opacity-50"
                 >
                   {isSubmitting ? (
                     <span>Dispatching Workers...</span>
                   ) : (
                     <>
-                      <Send className="h-3.5 w-3.5" />
-                      <span>Publish Now</span>
+                      <Send className="h-3.5 w-3.5 text-indigo-400" />
+                      <span>{publishMode === 'scheduled' ? 'Confirm Schedule' : 'Publish Now'}</span>
                     </>
                   )}
                 </button>
               </div>
             </div>
-
-            {/* Video Overview Strip */}
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center gap-5">
-              <div className="relative aspect-video w-40 rounded-lg overflow-hidden bg-slate-900 shrink-0">
-                <img
-                  src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400"
-                  alt="Preview"
-                  className="w-full h-full object-cover opacity-90"
-                />
-              </div>
-              <div className="flex-1 space-y-1">
-                <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-                <p className="text-xs text-slate-600 line-clamp-2">{description}</p>
-                <div className="flex flex-wrap gap-1 pt-1">
-                  {hashtags.map((h) => (
-                    <span key={h} className="text-[11px] font-medium text-blue-600">
-                      {h}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Platforms Readiness Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {selectedEnabledPlatforms.map((p) => {
-                const isReady = p.id !== 'INSTAGRAM' || igCaption !== 'FORCE_ERROR';
-                return (
-                  <div
-                    key={p.id}
-                    className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`flex h-7 w-7 items-center justify-center rounded text-white text-xs font-bold ${p.badgeBg}`}
-                        >
-                          {p.badgeText}
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-bold text-slate-900">{p.name}</h4>
-                          <span className="text-[10px] text-slate-400">{p.account}</span>
-                        </div>
-                      </div>
-
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                          isReady ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-                        }`}
-                      >
-                        <CheckCircle2 className="h-3 w-3" />
-                        Ready
-                      </span>
-                    </div>
-
-                    <div className="text-xs text-slate-600 space-y-1 pt-1 border-t border-slate-100">
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Media format:</span>
-                        <span className="font-medium text-slate-700">1080p MP4 (Compliant)</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">OAuth token:</span>
-                        <span className="font-medium text-emerald-600">Verified &amp; Active</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">API quota:</span>
-                        <span className="font-medium text-slate-700">Normal</span>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setActiveCustomizePlatform(p.id)}
-                      className="w-full rounded border border-slate-200 bg-slate-50 py-1.5 text-center text-xs font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      Edit {p.name} Overrides
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
           </div>
         )}
 
-        {/* MODAL: PLATFORM CUSTOMIZATION (Screenshot 8) */}
+        {/* MODAL: PLATFORM OVERRIDES */}
         {activeCustomizePlatform && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-            <div className="w-full max-w-3xl rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden animate-scaleIn">
-              {/* Modal Header with Platform Switcher */}
-              <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-3.5">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fadeIn">
+            <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden p-6 space-y-5">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
-                  <Sliders className="h-4 w-4 text-blue-600" />
-                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Platform Customization
-                  </span>
+                  <SlidersHorizontal className="h-4 w-4 text-indigo-600" />
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Customize for {platforms.find((p) => p.id === activeCustomizePlatform)?.name}
+                  </h3>
                 </div>
-
                 <button
                   type="button"
                   onClick={() => setActiveCustomizePlatform(null)}
-                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                  className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
 
-              {/* Tabs for connected platforms */}
-              <div className="flex border-b border-slate-200 px-6 bg-white gap-2">
-                {platforms
-                  .filter((p) => p.enabled)
-                  .map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => setActiveCustomizePlatform(p.id)}
-                      className={`flex items-center gap-2 border-b-2 py-3 px-3 text-xs font-semibold transition-colors ${
-                        activeCustomizePlatform === p.id
-                          ? 'border-blue-600 text-blue-600'
-                          : 'border-transparent text-slate-500 hover:text-slate-800'
-                      }`}
+              {activeCustomizePlatform === 'YOUTUBE' && (
+                <div className="space-y-4 text-xs">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-700">Custom YouTube Title</label>
+                    <input
+                      type="text"
+                      value={ytTitle}
+                      onChange={(e) => setYtTitle(e.target.value)}
+                      placeholder={title}
+                      className="w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-slate-400 shadow-2xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-700">YouTube Visibility</label>
+                    <select
+                      value={ytVisibility}
+                      onChange={(e: any) => setYtVisibility(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-slate-400 shadow-2xs"
                     >
-                      <span
-                        className={`h-2 w-2 rounded-full ${
-                          p.id === 'YOUTUBE'
-                            ? 'bg-red-600'
-                            : p.id === 'TIKTOK'
-                            ? 'bg-black'
-                            : 'bg-pink-600'
-                        }`}
-                      />
-                      <span>{p.name}</span>
-                    </button>
-                  ))}
-              </div>
-
-              {/* Modal Body: Verified Platform Capabilities */}
-              <div className="p-6 max-h-[70vh] overflow-y-auto space-y-4">
-                {activeCustomizePlatform === 'YOUTUBE' && (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-xs text-slate-500 pb-2 border-b border-slate-100">
-                      <Info className="h-4 w-4 text-blue-600" />
-                      <span>
-                        Verified YouTube Data API v3 capabilities: Resumable chunked upload, tags &amp; COPPA declaration.
-                      </span>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        YouTube Custom Title (Override)
-                      </label>
-                      <input
-                        type="text"
-                        value={ytTitle}
-                        onChange={(e) => setYtTitle(e.target.value)}
-                        placeholder={title}
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        YouTube Description
-                      </label>
-                      <textarea
-                        rows={3}
-                        value={ytDescription}
-                        onChange={(e) => setYtDescription(e.target.value)}
-                        placeholder={description}
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          Privacy Visibility
-                        </label>
-                        <select
-                          value={ytVisibility}
-                          onChange={(e) => setYtVisibility(e.target.value as any)}
-                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
-                        >
-                          <option value="public">Public</option>
-                          <option value="unlisted">Unlisted</option>
-                          <option value="private">Private</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          Category
-                        </label>
-                        <select
-                          value={ytCategory}
-                          onChange={(e) => setYtCategory(e.target.value)}
-                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
-                        >
-                          <option value="28">Science &amp; Technology</option>
-                          <option value="27">Education</option>
-                          <option value="24">Entertainment</option>
-                          <option value="22">People &amp; Blogs</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 pt-2">
-                      <input
-                        type="checkbox"
-                        id="ytMadeForKids"
-                        checked={ytMadeForKids}
-                        onChange={(e) => setYtMadeForKids(e.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                      />
-                      <label htmlFor="ytMadeForKids" className="text-xs text-slate-700">
-                        Made for Kids (COPPA compliance check)
-                      </label>
-                    </div>
+                      <option value="public">Public</option>
+                      <option value="unlisted">Unlisted</option>
+                      <option value="private">Private</option>
+                    </select>
                   </div>
-                )}
+                </div>
+              )}
 
-                {activeCustomizePlatform === 'TIKTOK' && (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-xs text-slate-500 pb-2 border-b border-slate-100">
-                      <Info className="h-4 w-4 text-blue-600" />
-                      <span>
-                        Verified TikTok Content Posting API v2: Single combined caption field (max 2,200 chars).
-                      </span>
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
-                        <label>TikTok Caption</label>
-                        <span className="text-slate-400 font-normal">
-                          {ttCaption ? ttCaption.length : description.length}/2200
-                        </span>
-                      </div>
-                      <textarea
-                        rows={3}
-                        value={ttCaption}
-                        onChange={(e) => setTtCaption(e.target.value)}
-                        placeholder={`${title}\n\n${hashtags.join(' ')}`}
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        TikTok Privacy Level
-                      </label>
-                      <select
-                        value={ttPrivacy}
-                        onChange={(e) => setTtPrivacy(e.target.value as any)}
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
-                      >
-                        <option value="PUBLIC_TO_EVERYONE">Public to Everyone</option>
-                        <option value="MUTUAL_FOLLOW_FRIENDS">Mutual Friends Only</option>
-                        <option value="SELF_ONLY">Private (Only Me)</option>
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 pt-2">
-                      <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={ttAllowComments}
-                          onChange={(e) => setTtAllowComments(e.target.checked)}
-                          className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                        />
-                        <span>Allow Comments</span>
-                      </label>
-
-                      <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={ttAllowDuet}
-                          onChange={(e) => setTtAllowDuet(e.target.checked)}
-                          className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                        />
-                        <span>Allow Duet</span>
-                      </label>
-
-                      <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={ttAllowStitch}
-                          onChange={(e) => setTtAllowStitch(e.target.checked)}
-                          className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                        />
-                        <span>Allow Stitch</span>
-                      </label>
-                    </div>
+              {activeCustomizePlatform === 'TIKTOK' && (
+                <div className="space-y-4 text-xs">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-700">Custom TikTok Caption</label>
+                    <textarea
+                      rows={3}
+                      value={ttCaption}
+                      onChange={(e) => setTtCaption(e.target.value)}
+                      placeholder={description}
+                      className="w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-slate-400 shadow-2xs"
+                    />
                   </div>
-                )}
-
-                {activeCustomizePlatform === 'INSTAGRAM' && (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-xs text-slate-500 pb-2 border-b border-slate-100">
-                      <Info className="h-4 w-4 text-blue-600" />
-                      <span>
-                        Verified Instagram Graph API: Container initialization, Reels audio &amp; Feed sharing.
-                      </span>
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
-                        <label>Reel Caption</label>
-                        <span className="text-slate-400 font-normal">
-                          {igCaption ? igCaption.length : description.length}/2200
-                        </span>
-                      </div>
-                      <textarea
-                        rows={3}
-                        value={igCaption}
-                        onChange={(e) => setIgCaption(e.target.value)}
-                        placeholder={`${title}\n\n${hashtags.join(' ')}`}
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-3 pt-2">
-                      <input
-                        type="checkbox"
-                        id="igShareToFeed"
-                        checked={igShareToFeed}
-                        onChange={(e) => setIgShareToFeed(e.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                      />
-                      <label htmlFor="igShareToFeed" className="text-xs text-slate-700">
-                        Also Share Reel to Profile Feed
-                      </label>
-                    </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-700">Privacy Setting</label>
+                    <select
+                      value={ttPrivacy}
+                      onChange={(e: any) => setTtPrivacy(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-slate-400 shadow-2xs"
+                    >
+                      <option value="PUBLIC_TO_EVERYONE">Public to Everyone</option>
+                      <option value="MUTUAL_FOLLOW_FRIENDS">Mutual Friends</option>
+                      <option value="SELF_ONLY">Only Me</option>
+                    </select>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
-              {/* Modal Footer */}
-              <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-3">
+              {activeCustomizePlatform !== 'YOUTUBE' && activeCustomizePlatform !== 'TIKTOK' && (
+                <div className="py-4 text-center text-xs text-slate-500">
+                  Universal content metadata will be applied automatically according to {activeCustomizePlatform} guidelines.
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-slate-100 flex justify-end">
                 <button
                   type="button"
                   onClick={() => setActiveCustomizePlatform(null)}
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  className="rounded-xl bg-slate-900 text-white px-4 py-2 text-xs font-semibold hover:bg-slate-800 transition-colors"
                 >
-                  Save &amp; Close
+                  Save Overrides
                 </button>
               </div>
             </div>

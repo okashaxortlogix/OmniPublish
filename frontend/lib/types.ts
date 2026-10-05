@@ -22,6 +22,21 @@ export interface SocialAccount {
   metadata?: Record<string, unknown>;
 }
 
+export interface MediaDerivative {
+  id: string;
+  media_asset_id: string;
+  derivative_type: string;
+  storage_path: string;
+  storage_disk: string;
+  url?: string;
+  mime_type: string;
+  file_size: number;
+  width?: number;
+  height?: number;
+  duration?: number;
+  format_metadata?: Record<string, unknown>;
+}
+
 export interface MediaAsset {
   id: string;
   workspace_id: string;
@@ -38,7 +53,14 @@ export interface MediaAsset {
   height?: number;
   aspect_ratio?: string;
   codec?: string;
-  status: 'UPLOADING' | 'PROCESSING' | 'READY' | 'FAILED' | 'DELETED';
+  video_codec?: string;
+  audio_codec?: string;
+  bitrate?: number;
+  frame_rate?: number;
+  processing_stage?: string;
+  processing_error?: string;
+  status: 'PENDING_UPLOAD' | 'UPLOAD_AUTHORIZED' | 'QUEUED' | 'PROCESSING' | 'READY' | 'FAILED' | 'CANCELLED' | 'UPLOADING' | 'DELETED';
+  derivatives?: MediaDerivative[];
 }
 
 export interface GlobalMetadata {
@@ -96,6 +118,9 @@ export interface PublishJob {
   remote_post_id?: string;
   remotePostId?: string;
   remote_post_url?: string;
+  upload_session_url?: string;
+  bytes_uploaded?: number;
+  total_bytes?: number;
   publishedUrl?: string;
   publishedAt?: string;
   failure_category?: string;
