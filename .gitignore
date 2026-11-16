@@ -41,3 +41,16 @@ coverage/
 tmp/
 temp/
 scratch/
+
+# System & Build Ignores
+.terraform/
+*.exe
+*.pack
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.apk
+books/
+*.db
+*.onnx

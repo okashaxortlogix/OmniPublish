@@ -193,7 +193,7 @@ OmniPublish/
 
 #### 1. Clone the Repository
 ```bash
-git clone https://github.com/muhammadokashapak/OmniPublish.git
+git clone https://github.com/okashaxortlogix/OmniPublish.git
 cd OmniPublish
 ```
 
